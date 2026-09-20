@@ -1,0 +1,21 @@
+# Local research artifacts can contain personal resume and portfolio images.
+work/
+
+# Local agent tooling is not part of the public application source.
+.agents/
+skills-lock.json
+
+# Credentials and local configuration.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Build and runtime output.
+node_modules/
+.next/
+dist/
+coverage/
+*.log
+.DS_Store

@@ -1,0 +1,3 @@
+# Deploy the first public version on AWS
+
+JobLens will deploy its first public version on AWS, using the project owner's existing AWS credits and making deployment, observability, and cost controls part of the portfolio evidence. OCI Free Tier remains an alternative, but splitting the initial runtime between providers would add operational complexity during the first release. A spending alert, per-Candidate analysis limit, and application-level switch that disables paid analysis while leaving Job Listing browsing available are required before public access. The concrete services and thresholds will be chosen after measuring the workload; budget notifications alone are not treated as a hard spending cap.

@@ -1,0 +1,3 @@
+# Filter listings in code and use AI for evidence explanations
+
+JobLens applies explicit role, region, work-arrangement, recruitment-status, and source-authorization rules in code before invoking AI. AI may explain Requirement Evidence and Evidence Gaps only from Candidate-approved Sanitized Resume content and Job Posting requirements actually supplied by an authorized source. This keeps deterministic eligibility testable and prevents an AI response from inventing a source permission, an open status, or a missing requirement; it trades some flexibility for clearer auditability and lower analysis cost.
