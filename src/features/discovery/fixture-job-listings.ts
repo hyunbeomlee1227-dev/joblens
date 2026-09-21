@@ -78,8 +78,23 @@ const fixtureJobListings = [
   },
 ] as const satisfies readonly JobListing[];
 
+const fixtureSnapshotTime = Date.parse("2026-09-21T12:00:00.000Z");
+const maximumFixtureAge = 24 * 60 * 60 * 1000;
+
+function isCurrentFixtureListing(listing: JobListing): boolean {
+  const observedAt = Date.parse(listing.provenance.observedAt);
+  const closesAt = listing.closesAt ? Date.parse(listing.closesAt) : null;
+  const isFresh =
+    Number.isFinite(observedAt) &&
+    observedAt <= fixtureSnapshotTime &&
+    fixtureSnapshotTime - observedAt <= maximumFixtureAge;
+  const isNotExpired = closesAt === null || closesAt >= fixtureSnapshotTime;
+
+  return listing.recruitmentStatus === "open" && isFresh && isNotExpired;
+}
+
 export function listFixtureJobListings(): readonly JobListing[] {
-  return fixtureJobListings;
+  return fixtureJobListings.filter(isCurrentFixtureListing);
 }
 
 export function findFixtureJobListing(id: string): JobListing | undefined {
