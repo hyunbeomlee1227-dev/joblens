@@ -1,0 +1,473 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Always-on JobLens runtime on a low-cost Seoul EC2 instance behind CloudFront HTTPS.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: Immutable ECR image URI including its tag.
+  EcrRepositoryArn:
+    Type: String
+  EcrRepositoryUri:
+    Type: String
+  NotificationEmail:
+    Type: String
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+  CloudFrontOriginPrefixListId:
+    Type: String
+    Description: AWS-managed com.amazonaws.global.cloudfront.origin-facing prefix list ID.
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  Network:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: joblens
+        - Key: Project
+          Value: JobLens
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Network
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.42.1.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref Network
+      Tags:
+        - Key: Name
+          Value: joblens-public
+        - Key: Project
+          Value: JobLens
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Network
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  ApplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Accept HTTP only from CloudFront origin servers.
+      SecurityGroupIngress:
+        - Description: CloudFront origin traffic
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+      SecurityGroupEgress:
+        - Description: HTTPS for ECR, SSM, packages, and AWS APIs
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: HTTP for operating-system package mirrors
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref Network
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /joblens/test/application
+      RetentionInDays: 14
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: joblens-test-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: GetRegistryToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PullReleaseImage
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Ref EcrRepositoryArn
+              - Sid: WriteApplicationLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource: !GetAtt ApplicationLogGroup.Arn
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - GatewayAttachment
+      - ApplicationLogGroup
+    Properties:
+      AvailabilityZone: !GetAtt PublicSubnet.AvailabilityZone
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 12
+            VolumeType: gp3
+      CreditSpecification:
+        CPUCredits: standard
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        InstanceMetadataTags: enabled
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref ApplicationSecurityGroup
+          SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: joblens
+        - Key: Project
+          Value: JobLens
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          dnf install -y docker nginx
+          systemctl enable --now docker
+
+          cat > /etc/nginx/conf.d/joblens.conf <<'NGINX'
+          server {
+            listen 80 default_server;
+            server_name _;
+
+            location / {
+              proxy_pass http://127.0.0.1:3000;
+              proxy_http_version 1.1;
+              proxy_set_header Host $host;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Host $host;
+              proxy_set_header X-Forwarded-Proto https;
+              proxy_buffering off;
+            }
+          }
+          NGINX
+          rm -f /etc/nginx/conf.d/default.conf
+          nginx -t
+          systemctl enable --now nginx
+
+          mkdir -p /var/lib/joblens
+
+          cat > /usr/local/bin/deploy-joblens <<'DEPLOY'
+          #!/bin/bash
+          set -euo pipefail
+
+          image="$1"
+          case "$image" in
+            ${EcrRepositoryUri}:*) ;;
+            *) echo "Refusing image outside the JobLens ECR repository" >&2; exit 2 ;;
+          esac
+
+          registry="$(printf '%s' "$image" | cut -d/ -f1)"
+          aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin "$registry"
+          docker pull "$image"
+
+          remove_container() {
+            local name="$1"
+            if docker inspect "$name" >/dev/null 2>&1; then
+              docker stop --time 20 "$name" >/dev/null || true
+              docker rm "$name" >/dev/null || true
+            fi
+          }
+
+          previous_image="$(docker inspect --format '{{.Config.Image}}' joblens-current 2>/dev/null || true)"
+          remove_container joblens-canary
+          docker run -d --name joblens-canary \
+            --cap-drop ALL --security-opt no-new-privileges --read-only \
+            --tmpfs /tmp --tmpfs /app/.next/cache \
+            --log-driver awslogs \
+            --log-opt awslogs-region=${AWS::Region} \
+            --log-opt awslogs-group=/joblens/test/application \
+            --log-opt tag=joblens-canary \
+            -p 127.0.0.1:3001:3000 "$image" >/dev/null
+
+          healthy=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$healthy" != "1" ]]; then
+            docker logs joblens-canary >&2 || true
+            remove_container joblens-canary
+            exit 1
+          fi
+
+          remove_container joblens-current
+          remove_container joblens-canary
+          docker run -d --name joblens-current --restart unless-stopped \
+            --cap-drop ALL --security-opt no-new-privileges --read-only \
+            --tmpfs /tmp --tmpfs /app/.next/cache \
+            --log-driver awslogs \
+            --log-opt awslogs-region=${AWS::Region} \
+              --log-opt awslogs-group=/joblens/test/application \
+            --log-opt tag=joblens \
+            -p 127.0.0.1:3000:3000 "$image" >/dev/null
+
+          healthy=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$healthy" != "1" ]]; then
+            docker logs joblens-current >&2 || true
+            remove_container joblens-current
+            if [[ -n "$previous_image" ]]; then
+              docker run -d --name joblens-current --restart unless-stopped \
+                --cap-drop ALL --security-opt no-new-privileges --read-only \
+                --tmpfs /tmp --tmpfs /app/.next/cache \
+                --log-driver awslogs \
+                --log-opt awslogs-region=${AWS::Region} \
+                --log-opt awslogs-group=/joblens/test/application \
+                --log-opt tag=joblens \
+                -p 127.0.0.1:3000:3000 "$previous_image" >/dev/null
+            fi
+            exit 1
+          fi
+
+          if [[ -n "$previous_image" ]]; then
+            printf '%s\n' "$previous_image" > /var/lib/joblens/previous-image
+          fi
+          docker image prune -f >/dev/null
+          DEPLOY
+          chmod 0755 /usr/local/bin/deploy-joblens
+
+          cat > /usr/local/bin/rollback-joblens <<'ROLLBACK'
+          #!/bin/bash
+          set -euo pipefail
+          previous_file=/var/lib/joblens/previous-image
+          if [[ ! -s "$previous_file" ]]; then
+            echo "No previous JobLens image is available" >&2
+            exit 1
+          fi
+          /usr/local/bin/deploy-joblens "$(cat "$previous_file")"
+          ROLLBACK
+          chmod 0755 /usr/local/bin/rollback-joblens
+
+          /usr/local/bin/deploy-joblens "${ImageUri}"
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: JobLens operations
+      Subscription:
+        - Endpoint: !Ref NotificationEmail
+          Protocol: email
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  InstanceStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: joblens-test-instance-status
+      AlarmDescription: The JobLens EC2 instance failed an AWS status check.
+      AlarmActions:
+        - !Ref AlertTopic
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref ApplicationInstance
+      EvaluationPeriods: 2
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Maximum
+      Threshold: 1
+      TreatMissingData: breaching
+
+  HighCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: joblens-test-high-cpu
+      AlarmDescription: JobLens CPU remained above 80 percent for fifteen minutes.
+      AlarmActions:
+        - !Ref AlertTopic
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref ApplicationInstance
+      EvaluationPeriods: 3
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 300
+      Statistic: Average
+      Threshold: 80
+      TreatMissingData: notBreaching
+
+  OperationsDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: joblens-test-operations
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "JobLens EC2 health",
+                "region": "${AWS::Region}",
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", "InstanceId", "${ApplicationInstance}"],
+                  [".", "StatusCheckFailed", ".", "."]
+                ],
+                "period": 300,
+                "stat": "Average"
+              }
+            },
+            {
+              "type": "log",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Recent application errors",
+                "region": "${AWS::Region}",
+                "query": "SOURCE '/joblens/test/application' | fields @timestamp, @message | filter @message like /(?i)(error|fatal|exception)/ | sort @timestamp desc | limit 50",
+                "view": "table"
+              }
+            }
+          ]
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: ApplicationInstance
+    Properties:
+      DistributionConfig:
+        Comment: JobLens public HTTPS endpoint
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          TargetOriginId: joblens-ec2
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - DomainName: !GetAtt ApplicationInstance.PublicDnsName
+            Id: joblens-ec2
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginKeepaliveTimeout: 5
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 30
+        PriceClass: PriceClass_200
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+Outputs:
+  CloudFrontDistributionId:
+    Value: !Ref Distribution
+  InstanceId:
+    Value: !Ref ApplicationInstance
+  PublicUrl:
+    Value: !Sub https://${Distribution.DomainName}

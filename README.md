@@ -28,3 +28,26 @@ npm test
 ```
 
 `npm test` creates a production build and runs the public discovery journey in Chromium. GitHub Actions performs the same formatting, type, build, and browser checks for pushes to `main` and pull requests.
+
+The deployment health endpoint is available at `/api/health`. It reports the immutable release identifier and is intentionally excluded from caches.
+
+## Deploy the public fixture to AWS
+
+The first public release runs as a standalone Next.js container on a small EC2 instance in Seoul. CloudFront provides the public HTTPS address, ECR stores immutable release images, Systems Manager replaces SSH, and GitHub Actions assumes a short-lived AWS role through OIDC. There are no long-lived AWS keys in GitHub.
+
+Requirements:
+
+- AWS CLI authenticated to the target account
+- GitHub CLI authenticated for `hyunbeomlee1227-dev/joblens`
+- Docker running locally
+- Bash, Git, and curl
+
+Run the repeatable setup wizard from the repository root:
+
+```bash
+bash scripts/setup-aws.sh
+```
+
+The wizard first runs the same release checks as CI. It then asks for the budget and service-alert email locally, writes it only to the ignored `.env.aws` file, creates the `test` infrastructure, publishes the first image, verifies the public health endpoint, and stores only non-secret resource identifiers as GitHub repository variables. Confirm the AWS SNS subscription email so operational alarms can reach you.
+
+After setup, a successful CI run on `main` builds an immutable image and deploys it through Systems Manager. The instance first checks the new image on a private canary port. If the local check fails, the running release stays in place; if the public CloudFront check fails after switching, the workflow restores the previous image. The `joblens-test-operations` CloudWatch dashboard shows instance health and application errors. The `joblens-test-monthly-cost` budget and Cost Explorer use the `Project=JobLens` cost-allocation tag, which AWS can take up to 24 hours to expose after activation, to isolate application spending and alert at 50%, 80%, and a forecast of 100%.

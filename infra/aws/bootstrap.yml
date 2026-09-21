@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: JobLens deployment registry, GitHub OIDC role, and cost guardrail.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: hyunbeomlee1227-dev
+  GitHubRepository:
+    Type: String
+    Default: joblens
+  BudgetEmail:
+    Type: String
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    ConstraintDescription: Enter a valid email address for AWS budget alerts.
+  MonthlyBudgetAmount:
+    Type: Number
+    Default: 20
+    MinValue: 1
+
+Resources:
+  ContainerRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: joblens-test
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep the ten newest release images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: joblens-test-github-deploy
+      Description: Short-lived deployment access for the JobLens main branch.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:ref:refs/heads/main
+      Policies:
+        - PolicyName: joblens-container-publish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: GetRegistryToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PublishReleaseImage
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !GetAtt ContainerRepository.Arn
+              - Sid: DeployToTaggedInstance
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/Project: JobLens
+              - Sid: UseRunShellScript
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Sid: ReadDeploymentResult
+                Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  MonthlyCostBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetAmount
+          Unit: USD
+        BudgetName: joblens-test-monthly-cost
+        BudgetType: COST
+        CostFilters:
+          TagKeyValue:
+            - user:Project$JobLens
+        TimeUnit: MONTHLY
+      NotificationsWithSubscribers:
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: ACTUAL
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - Address: !Ref BudgetEmail
+              SubscriptionType: EMAIL
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: ACTUAL
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - Address: !Ref BudgetEmail
+              SubscriptionType: EMAIL
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: FORECASTED
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - Address: !Ref BudgetEmail
+              SubscriptionType: EMAIL
+
+Outputs:
+  EcrRepositoryArn:
+    Value: !GetAtt ContainerRepository.Arn
+  EcrRepositoryUri:
+    Value: !GetAtt ContainerRepository.RepositoryUri
+  GitHubDeployRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
