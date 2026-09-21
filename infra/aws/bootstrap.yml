@@ -5,9 +5,15 @@ Parameters:
   GitHubOwner:
     Type: String
     Default: hyunbeomlee1227-dev
+  GitHubOwnerId:
+    Type: String
+    Default: "265446538"
   GitHubRepository:
     Type: String
     Default: joblens
+  GitHubRepositoryId:
+    Type: String
+    Default: "1378349878"
   BudgetEmail:
     Type: String
     AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
@@ -74,7 +80,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepository}:ref:refs/heads/main
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepository}@${GitHubRepositoryId}:ref:refs/heads/main
       Policies:
         - PolicyName: joblens-container-publish
           PolicyDocument:
