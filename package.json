@@ -1,0 +1,32 @@
+{
+  "name": "joblens",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "format": "prettier --write src tests package.json tsconfig.json next.config.ts playwright.config.ts",
+    "format:check": "prettier --check src tests package.json tsconfig.json next.config.ts playwright.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && playwright test",
+    "test:browser": "playwright test",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "next": "16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "prettier": "3.9.8",
+    "typescript": "^5.9.0"
+  }
+}
