@@ -1,3 +1,7 @@
 # Filter listings in code and use AI for evidence explanations
 
 JobLens applies explicit role, region, work-arrangement, recruitment-status, and source-authorization rules in code before invoking AI. AI may explain Requirement Evidence and Evidence Gaps only from Candidate-approved Sanitized Resume content and Job Posting requirements actually supplied by an authorized source. This keeps deterministic eligibility testable and prevents an AI response from inventing a source permission, an open status, or a missing requirement; it trades some flexibility for clearer auditability and lower analysis cost.
+
+Every model-provided Resume citation and Job Posting requirement citation is checked against its exact supplied original after deterministic whitespace normalization. A listing result containing any unverified citation fails validation as a whole and cannot be displayed or persisted as a Job Recommendation; an invocation that already started still consumes the Daily Analysis Allowance. A recommendation also requires verified evidence for at least one core responsibility or required qualification; preferred-qualification evidence alone is reported as core-evidence-insufficient, not as a recommendation or rejection.
+
+Core responsibility, required qualification, and preferred qualification categories come only from structured source fields or explicit section headings in the Job Posting. Ambiguous text remains uncategorized and cannot be promoted by the model or independently satisfy the minimum evidence rule.

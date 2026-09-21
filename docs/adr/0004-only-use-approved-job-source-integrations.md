@@ -1,11 +1,11 @@
 # Only use approved Job Source integrations
 
-Status: superseded by ADR-0006 for the primary discovery workflow. The prohibition on unapproved scraping remains in force.
+Status: superseded by ADR-0006 for discovery and by ADR-0014 for source-specific use permissions. The prohibition on unapproved scraping remains in force; the historical paste fallback below is retired from the current product scope.
 
-JobLens recognizes JobKorea, Saramin, and Wanted URLs but retrieves metadata automatically only through an approved official API or explicit permission. Unsupported or unapproved content collection falls back to candidate-reviewed paste input, and the service does not use headless browsers to bypass access or rendering restrictions.
+This ADR previously proposed recognizing JobKorea, Saramin, and Wanted URLs and falling back to candidate-reviewed Job Posting paste when approved retrieval was unavailable. That paste fallback is no longer part of JobLens; ADR-0006 makes authorized discovery the primary workflow and ADR-0014 prevents user input from bypassing source-specific permissions. The prohibition on headless-browser bypass remains.
 
 ## Consequences
 
 - Transient failures from approved integrations receive at most one retry.
-- Authentication, authorization, policy, and unsupported-source failures immediately fall back to paste input.
-- Saramin is the first API integration candidate; JobKorea and Wanted adapters remain disabled until approved access exists.
+- Authentication, authorization, policy, and unsupported-source failures do not enable a paste or scraping fallback.
+- JobKorea, Saramin, and Wanted adapters remain disabled until approved access and use permissions exist.

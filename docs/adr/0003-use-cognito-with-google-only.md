@@ -8,5 +8,5 @@ JobLens delegates candidate authentication to an Amazon Cognito user pool federa
 - APIs trust Cognito access tokens and identify a Candidate by the stable `sub` claim.
 - Google client credentials, callback URLs, logout URLs, and Cognito configuration become deployment dependencies.
 - Migrating away from Cognito requires replacing the identity provider and account identifiers.
-- Public resume analysis has a per-Candidate daily usage limit to control abuse and cloud spending; the numeric limit is set from measured usage and cost, not guessed at design time.
+- Public resume analysis has one per-Candidate Daily Analysis Allowance shared by recommendation batches, paid retries, and selected deep analyses. It resets at midnight Korea Standard Time; the numeric limit is set from measured usage and cost, not guessed at design time. Approving a new Resume Version does not reset it.
 - Candidates can initiate self-service account deletion, which removes their application account, active sessions, and Candidate-owned persistent data.

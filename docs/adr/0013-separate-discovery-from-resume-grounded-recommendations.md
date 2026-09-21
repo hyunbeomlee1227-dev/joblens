@@ -1,0 +1,11 @@
+# Separate discovery from resume-grounded recommendations
+
+JobLens separates Discovered Job Listings based on explicit Job Preferences from Job Recommendations grounded in supplied Job Posting requirements and the Candidate-approved Sanitized Resume. ADR-0007 previously allowed short-snippet listings in the recommendation list as Limited Recommendations, but this risks implying resume suitability where requirements are unknown. The separate categories make the evidence boundary visible, at the cost of fewer items qualifying as recommendations; discovery remains useful without inventing requirements.
+
+Live discovery may launch independently of resume-grounded recommendation. A discovery-only release must identify recommendation as unavailable until usable, analysis-permitted posting requirements and the privacy and cost gates exist; it must not market preference matches as resume-based automatic recommendations.
+
+An analyzed listing without direct Requirement Evidence for at least one core responsibility or required qualification is shown as a core-evidence-insufficient analysis, not a Job Recommendation or an assertion that the Candidate lacks the underlying ability. A preferred qualification alone is insufficient. Unanalyzed listings stay in discovery; only comparisons actually completed for the approved Resume are counted as analyzed. A Candidate can request a separate deep Analysis Job on another analysis-permitted listing regardless of its automatic shortlist position.
+
+Evidence-insufficient analyses are not retained in Recommendation History. Additional candidate batches never repeat a completed comparison for the same browser-held approved Resume, are explicitly requested, and use the same daily allowance as selected deep analyses. For partially failed batches, completed results remain available; pre-invocation validation failures do not consume allowance, while attempts whose paid model invocation began do, even if the invocation later fails.
+
+The shared Daily Analysis Allowance resets at midnight Korea Standard Time. Changing and approving the Sanitized Resume creates a new Resume Version, allowing a listing to be compared again without resetting the allowance; current-session results distinguish versions, while Recommendation History stores only the evidence excerpts used at recommendation time.
