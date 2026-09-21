@@ -5,6 +5,7 @@ import {
   findFixtureJobListing,
   listFixtureJobListings,
 } from "@/features/discovery/fixture-job-listings";
+import { getRecruitmentStatusLabel } from "@/features/discovery/job-listing";
 
 type JobDetailPageProps = {
   params: Promise<{ id: string }>;
@@ -32,10 +33,14 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         <div className="detail-heading">
           <div>
             <div className="job-card-topline">
-              <span className="source-label">{listing.source}</span>
-              <span className="status-badge">
+              <span className="source-label">
+                {listing.provenance.jobSourceName}
+              </span>
+              <span
+                className={`status-badge status-${listing.recruitmentStatus}`}
+              >
                 <span className="status-dot" aria-hidden="true" />
-                모집중
+                {getRecruitmentStatusLabel(listing.recruitmentStatus)}
               </span>
             </div>
             <p className="company">{listing.company}</p>
@@ -44,7 +49,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           </div>
           <a
             className="primary-link original-link"
-            href={listing.originalUrl}
+            href={listing.provenance.originalUrl}
             rel="noreferrer"
             target="_blank"
           >
@@ -67,7 +72,10 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           </div>
           <div>
             <dt>모집 상태</dt>
-            <dd>모집중 · {listing.closingLabel}</dd>
+            <dd>
+              {getRecruitmentStatusLabel(listing.recruitmentStatus)} ·{" "}
+              {listing.closingLabel}
+            </dd>
           </div>
         </dl>
 

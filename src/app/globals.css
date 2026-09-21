@@ -224,6 +224,15 @@ main {
   width: 6px;
 }
 
+.status-closed {
+  background: #e7e8e4;
+  color: #5f6662;
+}
+
+.status-closed .status-dot {
+  background: #7b827e;
+}
+
 .company {
   color: var(--muted);
   font-size: 0.88rem;

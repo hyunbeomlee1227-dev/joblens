@@ -1,6 +1,9 @@
 import Link from "next/link";
 
-import type { JobListing } from "@/features/discovery/job-listing";
+import {
+  getRecruitmentStatusLabel,
+  type JobListing,
+} from "@/features/discovery/job-listing";
 
 type JobListingCardProps = {
   listing: JobListing;
@@ -10,10 +13,10 @@ export function JobListingCard({ listing }: JobListingCardProps) {
   return (
     <article className="job-card" aria-label={`${listing.title} 채용공고`}>
       <div className="job-card-topline">
-        <span className="source-label">{listing.source}</span>
-        <span className="status-badge">
+        <span className="source-label">{listing.provenance.jobSourceName}</span>
+        <span className={`status-badge status-${listing.recruitmentStatus}`}>
           <span className="status-dot" aria-hidden="true" />
-          모집중
+          {getRecruitmentStatusLabel(listing.recruitmentStatus)}
         </span>
       </div>
       <div>
@@ -40,7 +43,7 @@ export function JobListingCard({ listing }: JobListingCardProps) {
         <div className="card-actions">
           <a
             className="text-link secondary-text-link"
-            href={listing.originalUrl}
+            href={listing.provenance.originalUrl}
             rel="noreferrer"
             target="_blank"
           >
