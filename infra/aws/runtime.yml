@@ -15,6 +15,14 @@ Parameters:
   CloudFrontOriginPrefixListId:
     Type: String
     Description: AWS-managed com.amazonaws.global.cloudfront.origin-facing prefix list ID.
+  CustomDomainName:
+    Type: String
+    Default: ""
+    Description: Optional lowercase custom domain served by CloudFront.
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: Optional us-east-1 ACM certificate ARN covering CustomDomainName.
   InstanceType:
     Type: String
     Default: t3.micro
@@ -24,6 +32,11 @@ Parameters:
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  UseCustomDomain: !And
+    - !Not [!Equals [!Ref CustomDomainName, ""]]
+    - !Not [!Equals [!Ref AcmCertificateArn, ""]]
 
 Resources:
   Network:
@@ -430,6 +443,10 @@ Resources:
     DependsOn: ApplicationInstance
     Properties:
       DistributionConfig:
+        Aliases: !If
+          - UseCustomDomain
+          - - !Ref CustomDomainName
+          - !Ref AWS::NoValue
         Comment: JobLens public HTTPS endpoint
         DefaultCacheBehavior:
           AllowedMethods:
@@ -460,6 +477,12 @@ Resources:
               OriginProtocolPolicy: http-only
               OriginReadTimeout: 30
         PriceClass: PriceClass_200
+        ViewerCertificate: !If
+          - UseCustomDomain
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          - CloudFrontDefaultCertificate: true
       Tags:
         - Key: Project
           Value: JobLens
@@ -471,3 +494,6 @@ Outputs:
     Value: !Ref ApplicationInstance
   PublicUrl:
     Value: !Sub https://${Distribution.DomainName}
+  CustomDomainUrl:
+    Condition: UseCustomDomain
+    Value: !Sub https://${CustomDomainName}

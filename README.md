@@ -51,3 +51,13 @@ bash scripts/setup-aws.sh
 The wizard first runs the same release checks as CI. It then asks for the budget and service-alert email locally, writes it only to the ignored `.env.aws` file, creates the `test` infrastructure, publishes the first image, verifies the public health endpoint, and stores only non-secret resource identifiers as GitHub repository variables. Confirm the AWS SNS subscription email so operational alarms can reach you.
 
 After setup, a successful CI run on `main` builds an immutable image and deploys it through Systems Manager. The instance first checks the new image on a private canary port. If the local check fails, the running release stays in place; if the public CloudFront check fails after switching, the workflow restores the previous image. The `joblens-test-operations` CloudWatch dashboard shows instance health and application errors. The `joblens-test-monthly-cost` budget and Cost Explorer use the `Project=JobLens` cost-allocation tag, which AWS can take up to 24 hours to expose after activation, to isolate application spending and alert at 50%, 80%, and a forecast of 100%.
+
+## Connect the DNSZi custom domain
+
+The public fixture can use `https://www.hyunbeom.site` without moving DNS hosting from DNSZi to Route 53. The repeatable wizard requests or reuses a non-exportable ACM certificate in `us-east-1`, shows the exact DNS validation record to enter in DNSZi, attaches the certificate and custom hostname to CloudFront, and updates the GitHub `PUBLIC_URL` repository variable only after the public health endpoint succeeds.
+
+```bash
+bash scripts/setup-custom-domain.sh
+```
+
+DNSZi credentials stay in the browser and are never read or stored by the script. DNSZi does not support a CNAME at the zone apex, so `www.hyunbeom.site` is the canonical application address. The wizard guides the operator to configure an HTTP 301 redirect from `http://hyunbeom.site` to the HTTPS `www` address, then verifies it. DNSZi does not terminate TLS for the apex forwarding service, so `https://hyunbeom.site` is intentionally not advertised; supporting that address without a certificate warning requires an apex-capable DNS or a separate TLS endpoint. The original `cloudfront.net` address remains available as a recovery path.
