@@ -21,6 +21,11 @@ test("a visitor can browse a fixture listing and reach its original link", async
   await expect(
     listing.getByText("JobLens Demo", { exact: true }),
   ).toBeVisible();
+  await expect(listing.getByText("표시 허용", { exact: true })).toBeVisible();
+  await expect(listing.getByText("보관 불가", { exact: true })).toBeVisible();
+  await expect(
+    listing.getByText("AI 분석 불가", { exact: true }),
+  ).toBeVisible();
   await expect(
     listing.getByRole("link", { name: "원문 보기" }),
   ).toHaveAttribute("href", "https://example.com/jobs/backend-engineer");

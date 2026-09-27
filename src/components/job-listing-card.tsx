@@ -1,6 +1,9 @@
 import Link from "next/link";
 
+import { SourcePermissionSummary } from "@/components/source-permission-summary";
 import {
+  getClosingLabel,
+  getDisplayableFieldValue,
   getRecruitmentStatusLabel,
   type JobListing,
 } from "@/features/discovery/job-listing";
@@ -10,40 +13,54 @@ type JobListingCardProps = {
 };
 
 export function JobListingCard({ listing }: JobListingCardProps) {
+  const title = getDisplayableFieldValue(listing.title, "직무명 미확인");
+
   return (
-    <article className="job-card" aria-label={`${listing.title} 채용공고`}>
+    <article className="job-card" aria-label={`${title} 채용공고`}>
       <div className="job-card-topline">
-        <span className="source-label">{listing.provenance.jobSourceName}</span>
-        <span className={`status-badge status-${listing.recruitmentStatus}`}>
+        <span className={`status-badge status-${listing.recruitment.status}`}>
           <span className="status-dot" aria-hidden="true" />
-          {getRecruitmentStatusLabel(listing.recruitmentStatus)}
+          {getRecruitmentStatusLabel(listing.recruitment.status)}
         </span>
       </div>
+      <SourcePermissionSummary provenance={listing.provenance} />
       <div>
-        <p className="company">{listing.company}</p>
-        <h2>{listing.title}</h2>
+        <p className="company">
+          {getDisplayableFieldValue(listing.employer, "회사 미확인")}
+        </p>
+        <h2>{title}</h2>
       </div>
-      <p className="job-summary">{listing.summary}</p>
+      <p className="job-summary">
+        {getDisplayableFieldValue(
+          listing.summary,
+          "공급원이 요약을 제공하지 않았습니다.",
+        )}
+      </p>
       <dl className="job-facts">
         <div>
           <dt>지역</dt>
-          <dd>{listing.region}</dd>
+          <dd>{getDisplayableFieldValue(listing.location, "지역 미확인")}</dd>
         </div>
         <div>
           <dt>직군</dt>
-          <dd>{listing.occupation}</dd>
+          <dd>{getDisplayableFieldValue(listing.occupation, "직군 미확인")}</dd>
         </div>
         <div>
           <dt>근무 형태</dt>
-          <dd>{listing.workArrangement}</dd>
+          <dd>
+            {getDisplayableFieldValue(
+              listing.workArrangement,
+              "근무 형태 미확인",
+            )}
+          </dd>
         </div>
       </dl>
       <div className="job-card-footer">
-        <span>{listing.closingLabel}</span>
+        <span>{getClosingLabel(listing.recruitment.closesAt)}</span>
         <div className="card-actions">
           <a
             className="text-link secondary-text-link"
-            href={listing.provenance.originalUrl}
+            href={listing.originalUrl}
             rel="noreferrer"
             target="_blank"
           >

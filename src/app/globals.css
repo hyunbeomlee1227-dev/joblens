@@ -195,8 +195,39 @@ main {
 .job-card-topline {
   align-items: center;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-bottom: 34px;
+}
+
+.permission-summary {
+  margin: -22px 0 24px;
+}
+
+.source-permission-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.source-permission-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-permission-row b {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-right: 2px;
+}
+
+.source-permission-row span {
+  background: #eff3ef;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  padding: 5px 8px;
 }
 
 .source-label {
@@ -473,24 +504,34 @@ main {
   width: 7px;
 }
 
-.detail-notice {
+.detail-notice,
+.source-permission-notice {
   background: #eff3ef;
   border-radius: 14px;
   margin-top: 42px;
   padding: 18px 20px;
 }
 
-.detail-notice strong {
+.detail-notice strong,
+.source-permission-notice strong {
   display: block;
   font-size: 0.86rem;
   margin-bottom: 6px;
 }
 
-.detail-notice p {
+.detail-notice p,
+.source-permission-notice p {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.6;
+}
+
+.detail-notice p {
   margin: 0;
+}
+
+.source-permission-notice p {
+  margin: 10px 0 0;
 }
 
 .not-found {

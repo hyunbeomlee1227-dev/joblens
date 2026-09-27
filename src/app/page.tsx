@@ -7,7 +7,7 @@ type HomePageProps = {
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   const { fixture } = await searchParams;
-  const listings = fixture === "empty" ? [] : listFixtureJobListings();
+  const listings = fixture === "empty" ? [] : await listFixtureJobListings();
 
   return (
     <main>

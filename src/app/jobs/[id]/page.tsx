@@ -1,27 +1,35 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { SourcePermissionSummary } from "@/components/source-permission-summary";
 import {
   findFixtureJobListing,
   listFixtureJobListings,
 } from "@/features/discovery/fixture-job-listings";
-import { getRecruitmentStatusLabel } from "@/features/discovery/job-listing";
+import {
+  getClosingLabel,
+  getDisplayableFieldValue,
+  getRecruitmentStatusLabel,
+} from "@/features/discovery/job-listing";
 
 type JobDetailPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export function generateStaticParams() {
-  return listFixtureJobListings().map(({ id }) => ({ id }));
+export async function generateStaticParams() {
+  const listings = await listFixtureJobListings();
+  return listings.map(({ id }) => ({ id }));
 }
 
 export default async function JobDetailPage({ params }: JobDetailPageProps) {
   const { id } = await params;
-  const listing = findFixtureJobListing(id);
+  const listing = await findFixtureJobListing(id);
 
   if (!listing) {
     notFound();
   }
+
+  const highlights = getDisplayableFieldValue(listing.highlights, []);
 
   return (
     <main className="detail-shell">
@@ -33,23 +41,27 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         <div className="detail-heading">
           <div>
             <div className="job-card-topline">
-              <span className="source-label">
-                {listing.provenance.jobSourceName}
-              </span>
               <span
-                className={`status-badge status-${listing.recruitmentStatus}`}
+                className={`status-badge status-${listing.recruitment.status}`}
               >
                 <span className="status-dot" aria-hidden="true" />
-                {getRecruitmentStatusLabel(listing.recruitmentStatus)}
+                {getRecruitmentStatusLabel(listing.recruitment.status)}
               </span>
             </div>
-            <p className="company">{listing.company}</p>
-            <h1>{listing.title}</h1>
-            <p className="detail-summary">{listing.summary}</p>
+            <p className="company">
+              {getDisplayableFieldValue(listing.employer, "회사 미확인")}
+            </p>
+            <h1>{getDisplayableFieldValue(listing.title, "직무명 미확인")}</h1>
+            <p className="detail-summary">
+              {getDisplayableFieldValue(
+                listing.summary,
+                "공급원이 요약을 제공하지 않았습니다.",
+              )}
+            </p>
           </div>
           <a
             className="primary-link original-link"
-            href={listing.provenance.originalUrl}
+            href={listing.originalUrl}
             rel="noreferrer"
             target="_blank"
           >
@@ -60,21 +72,28 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         <dl className="detail-facts">
           <div>
             <dt>지역</dt>
-            <dd>{listing.region}</dd>
+            <dd>{getDisplayableFieldValue(listing.location, "지역 미확인")}</dd>
           </div>
           <div>
             <dt>직군</dt>
-            <dd>{listing.occupation}</dd>
+            <dd>
+              {getDisplayableFieldValue(listing.occupation, "직군 미확인")}
+            </dd>
           </div>
           <div>
             <dt>근무 형태</dt>
-            <dd>{listing.workArrangement}</dd>
+            <dd>
+              {getDisplayableFieldValue(
+                listing.workArrangement,
+                "근무 형태 미확인",
+              )}
+            </dd>
           </div>
           <div>
             <dt>모집 상태</dt>
             <dd>
-              {getRecruitmentStatusLabel(listing.recruitmentStatus)} ·{" "}
-              {listing.closingLabel}
+              {getRecruitmentStatusLabel(listing.recruitment.status)} ·{" "}
+              {getClosingLabel(listing.recruitment.closesAt)}
             </dd>
           </div>
         </dl>
@@ -83,11 +102,20 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           <p className="section-kicker">예시 주요 내용</p>
           <h2 id="highlights-title">공고에서 확인할 내용</h2>
           <ul>
-            {listing.highlights.map((highlight) => (
-              <li key={highlight}>{highlight}</li>
-            ))}
+            {highlights.length > 0 ? (
+              highlights.map((highlight) => (
+                <li key={highlight}>{highlight}</li>
+              ))
+            ) : (
+              <li>공급원이 주요 내용을 제공하지 않았습니다.</li>
+            )}
           </ul>
         </section>
+
+        <SourcePermissionSummary
+          provenance={listing.provenance}
+          variant="detail"
+        />
 
         <aside className="detail-notice">
           <strong>이 공고는 합성 데이터입니다.</strong>
