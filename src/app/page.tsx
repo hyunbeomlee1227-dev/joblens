@@ -1,13 +1,44 @@
 import { JobListingCard } from "@/components/job-listing-card";
-import { listFixtureJobListings } from "@/features/discovery/fixture-job-listings";
+import {
+  defaultFixturePreferences,
+  discoverFixtureJobListings,
+  fixturePreferenceOptions,
+} from "@/features/discovery/fixture-job-listings";
 
 type HomePageProps = {
-  searchParams: Promise<{ fixture?: string }>;
+  searchParams: Promise<{
+    fixture?: string;
+    role?: string;
+    region?: string;
+    workArrangement?: string;
+  }>;
 };
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const { fixture } = await searchParams;
-  const listings = fixture === "empty" ? [] : await listFixtureJobListings();
+  const { fixture, role, region, workArrangement } = await searchParams;
+  const selected = {
+    role: selectAllowed(
+      role,
+      fixturePreferenceOptions.roles,
+      defaultFixturePreferences.roles[0],
+    ),
+    region: selectAllowed(
+      region,
+      fixturePreferenceOptions.regions,
+      defaultFixturePreferences.regions[0],
+    ),
+    workArrangement: selectAllowed(
+      workArrangement,
+      fixturePreferenceOptions.workArrangements,
+      defaultFixturePreferences.workArrangements[0],
+    ),
+  };
+  const result = await discoverFixtureJobListings(fixture, {
+    roles: [selected.role],
+    regions: [selected.region],
+    workArrangements: [selected.workArrangement],
+  });
+  const { listings } = result;
 
   return (
     <main>
@@ -21,6 +52,40 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       <section className="discovery-section" aria-labelledby="listing-count">
+        <form className="preference-form" method="get">
+          {fixture ? (
+            <input name="fixture" type="hidden" value={fixture} />
+          ) : null}
+          <label>
+            <span>직군</span>
+            <select defaultValue={selected.role} name="role">
+              {fixturePreferenceOptions.roles.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>지역</span>
+            <select defaultValue={selected.region} name="region">
+              {fixturePreferenceOptions.regions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>근무 형태</span>
+            <select
+              defaultValue={selected.workArrangement}
+              name="workArrangement"
+            >
+              {fixturePreferenceOptions.workArrangements.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <button type="submit">조건 적용</button>
+        </form>
+
         <div className="section-heading">
           <div>
             <p className="section-kicker">공개 탐색</p>
@@ -28,6 +93,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </div>
           <p className="scope-note">서울 · 경기 · 인천</p>
         </div>
+
+        {result.state === "partial" ? (
+          <div className="discovery-notice" role="status">
+            <strong>일부 공급원 연결이 원활하지 않습니다.</strong>
+            <span>확인 가능한 공급원의 최신 공고만 표시합니다.</span>
+          </div>
+        ) : null}
 
         {listings.length > 0 ? (
           <div className="job-grid">
@@ -40,8 +112,20 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             <div className="empty-icon" aria-hidden="true">
               0
             </div>
-            <h2>조건에 맞는 데모 공고가 없습니다</h2>
-            <p>서비스 장애가 아니라 빈 결과 화면을 확인하기 위한 상태입니다.</p>
+            <h2>
+              {result.state === "unavailable"
+                ? "현재 공고를 확인할 수 없음"
+                : result.state === "empty" && result.reason === "verification"
+                  ? "검증이 필요한 공고를 제외했습니다"
+                  : "선호 조건에 맞는 공고가 없습니다"}
+            </h2>
+            <p>
+              {result.state === "unavailable"
+                ? "연결 가능한 공급원이 없어 공고를 불러오지 못했습니다."
+                : result.state === "empty" && result.reason === "verification"
+                  ? "공급원 사이의 모집 상태가 달라 확인 전까지 표시하지 않습니다."
+                  : "선호 조건을 자동으로 넓히지 않았습니다."}
+            </p>
             <a className="primary-link" href="/">
               데모 공고 다시 보기
             </a>
@@ -50,4 +134,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
     </main>
   );
+}
+
+function selectAllowed<const T extends readonly string[]>(
+  value: string | undefined,
+  allowed: T,
+  fallback: T[number],
+): T[number] {
+  return allowed.includes(value as T[number]) ? (value as T[number]) : fallback;
 }

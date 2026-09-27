@@ -45,16 +45,20 @@ export function describeJobSourceAdapterContract(
 
         for (const field of sourcedFields) {
           if (field.kind === "known") {
-            expect(field.provenance.source.id).toEqual(adapter.source.id);
-            expect(field.provenance.permission).toEqual(adapter.permission);
+            for (const provenance of field.provenance) {
+              expect(provenance.source.id).toEqual(adapter.source.id);
+              expect(provenance.permission).toEqual(adapter.permission);
+            }
           }
         }
 
         if (listing.recruitment.status !== "unknown") {
           expect(listing.recruitment.evidence.kind).not.toEqual("unknown");
-          expect(listing.recruitment.evidence.provenance.source.id).toEqual(
-            adapter.source.id,
-          );
+          expect(
+            listing.recruitment.evidence.provenance.every(
+              ({ source }) => source.id === adapter.source.id,
+            ),
+          ).toBe(true);
         }
       }
     });

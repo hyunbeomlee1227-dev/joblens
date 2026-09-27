@@ -19,7 +19,9 @@ export async function listDisplayableJobListings(
           provenance.permission.display,
       ) &&
       listing.recruitment.status !== "unknown" &&
-      listing.recruitment.evidence.provenance.permission.display,
+      listing.recruitment.evidence.provenance.some(
+        ({ permission }) => permission.display,
+      ),
   );
 }
 

@@ -1,28 +1,60 @@
-import { fixtureJobSourceAdapter } from "./fixture-job-source-adapter";
+import {
+  discoverJobListings,
+  type DiscoveryResult,
+  type JobPreferences,
+} from "./discover-job-listings";
+import {
+  fixtureJobSourceAdapter,
+  partnerFixtureJobSourceAdapter,
+} from "./fixture-job-source-adapter";
+import { JobSourceAdapterError } from "./job-source-adapter-error";
 import type { JobListing } from "./job-listing";
-import { listDisplayableJobListings } from "./list-displayable-job-listings";
 
-const fixtureSnapshotTime = Date.parse("2026-09-21T12:00:00.000Z");
-const maximumFixtureAge = 24 * 60 * 60 * 1000;
+const fixtureSnapshotTime = new Date("2026-09-21T12:00:00.000Z");
+export const fixturePreferenceOptions = {
+  roles: ["백엔드 개발", "프론트엔드 개발", "서비스 운영"],
+  regions: ["서울", "경기", "인천"],
+  workArrangements: ["주 3일 오피스", "하이브리드"],
+} as const;
 
-function isCurrentFixtureListing(listing: JobListing): boolean {
-  const observedAt = Date.parse(listing.observedAt);
-  const closesAt =
-    listing.recruitment.closesAt.kind === "known"
-      ? Date.parse(listing.recruitment.closesAt.value)
-      : null;
-  const isFresh =
-    Number.isFinite(observedAt) &&
-    observedAt <= fixtureSnapshotTime &&
-    fixtureSnapshotTime - observedAt <= maximumFixtureAge;
-  const isNotExpired = closesAt === null || closesAt >= fixtureSnapshotTime;
+export const defaultFixturePreferences = {
+  roles: ["백엔드 개발"],
+  regions: ["서울"],
+  workArrangements: ["주 3일 오피스"],
+} as const;
 
-  return listing.recruitment.status === "open" && isFresh && isNotExpired;
+const unavailableAdapter = {
+  ...fixtureJobSourceAdapter,
+  source: { id: "unavailable-demo", name: "Unavailable Demo" },
+  async listListings(): Promise<readonly JobListing[]> {
+    throw new JobSourceAdapterError("authentication", "fixture failure");
+  },
+};
+
+export async function discoverFixtureJobListings(
+  scenario?: string,
+  selectedPreferences: JobPreferences = defaultFixturePreferences,
+): Promise<DiscoveryResult> {
+  const adapters =
+    scenario === "unavailable"
+      ? [unavailableAdapter]
+      : scenario === "partial"
+        ? [fixtureJobSourceAdapter, unavailableAdapter]
+        : [fixtureJobSourceAdapter, partnerFixtureJobSourceAdapter];
+  const preferences =
+    scenario === "empty"
+      ? { ...selectedPreferences, roles: ["조건에 없는 직군"] }
+      : selectedPreferences;
+
+  return discoverJobListings({
+    adapters,
+    preferences,
+    now: fixtureSnapshotTime,
+  });
 }
 
 export async function listFixtureJobListings(): Promise<readonly JobListing[]> {
-  const listings = await listDisplayableJobListings(fixtureJobSourceAdapter);
-  return listings.filter(isCurrentFixtureListing);
+  return (await discoverFixtureJobListings()).listings;
 }
 
 export async function findFixtureJobListing(

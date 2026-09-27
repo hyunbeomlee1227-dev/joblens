@@ -1,5 +1,7 @@
 import type { JobSourceAdapter } from "./job-source-adapter";
+import type { JobSourceIdentity } from "./job-source-identity";
 import { defineJobSourcePermission } from "./job-source-permission";
+import type { JobSourcePermission } from "./job-source-permission";
 import {
   knownField,
   type JobListing,
@@ -28,10 +30,14 @@ type RawFixtureListing = {
   highlights?: readonly string[];
 };
 
-function createFixtureListing(raw: RawFixtureListing): JobListing {
+function createFixtureListing(
+  raw: RawFixtureListing,
+  listingSource: JobSourceIdentity = source,
+  listingPermission: JobSourcePermission = permission,
+): JobListing {
   const provenance: JobListingProvenance = {
-    source,
-    permission,
+    source: listingSource,
+    permission: listingPermission,
     sourceRecordId: raw.sourceRecordId,
     originalUrl: raw.originalUrl,
     originalLinkEvidence: {
@@ -45,7 +51,7 @@ function createFixtureListing(raw: RawFixtureListing): JobListing {
     value === undefined ? unknownField() : knownField(value, provenance);
 
   return {
-    id: `${source.id}--${raw.sourceRecordId}`,
+    id: `${listingSource.id}--${raw.sourceRecordId}`,
     sourceRecordId: raw.sourceRecordId,
     originalUrl: raw.originalUrl,
     employer: sourced(raw.employer),
@@ -59,7 +65,7 @@ function createFixtureListing(raw: RawFixtureListing): JobListing {
       closesAt: sourced(raw.closesAt),
       evidence: {
         kind: "source-status",
-        provenance,
+        provenance: [provenance],
       },
     },
     provenance: [provenance],
@@ -123,10 +129,48 @@ const fixtureJobListings = [
   }),
 ] satisfies readonly JobListing[];
 
+const partnerSource = {
+  id: "partner-demo",
+  name: "Partner Demo",
+} as const;
+const partnerPermission = defineJobSourcePermission({ display: true });
+const partnerFixtureJobListings = [
+  createFixtureListing(
+    {
+      sourceRecordId: "partner-backend-engineer",
+      originalUrl: "https://example.com/jobs/backend-engineer",
+      employer: "샘플 테크",
+      title: "백엔드 엔지니어",
+      location: "서울 강남구",
+      occupation: "백엔드 개발",
+      workArrangement: "주 3일 오피스",
+      observedAt: "2026-09-21T00:00:00.000Z",
+      closesAt: "2026-10-18T14:59:59.000Z",
+      summary:
+        "Spring 기반 서비스의 API와 데이터 흐름을 함께 개선하는 합성 채용공고입니다.",
+      highlights: [
+        "Java와 Spring 기반 API 개발",
+        "관계형 데이터베이스 모델링",
+        "테스트와 배포 자동화 경험",
+      ],
+    },
+    partnerSource,
+    partnerPermission,
+  ),
+] satisfies readonly JobListing[];
+
 export const fixtureJobSourceAdapter: JobSourceAdapter = {
   source,
   permission,
   async listListings() {
     return fixtureJobListings;
+  },
+};
+
+export const partnerFixtureJobSourceAdapter: JobSourceAdapter = {
+  source: partnerSource,
+  permission: partnerPermission,
+  async listListings() {
+    return partnerFixtureJobListings;
   },
 };

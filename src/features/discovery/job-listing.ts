@@ -16,10 +16,15 @@ export type JobListingProvenance = {
   observedAt: string;
 };
 
+export type ProvenanceSet = readonly [
+  JobListingProvenance,
+  ...JobListingProvenance[],
+];
+
 export type KnownField<T> = {
   kind: "known";
   value: T;
-  provenance: JobListingProvenance;
+  provenance: ProvenanceSet;
 };
 
 export type UnknownField = {
@@ -30,7 +35,7 @@ export type SourcedField<T> = KnownField<T> | UnknownField;
 
 type VerifiedRecruitmentEvidence = {
   kind: "source-status" | "closing-date";
-  provenance: JobListingProvenance;
+  provenance: ProvenanceSet;
 };
 
 type UnknownRecruitmentEvidence = {
@@ -62,7 +67,7 @@ export type JobListing = {
   workArrangement: SourcedField<string>;
   observedAt: string;
   recruitment: Recruitment;
-  provenance: readonly [JobListingProvenance, ...JobListingProvenance[]];
+  provenance: ProvenanceSet;
   summary: SourcedField<string>;
   highlights: SourcedField<readonly string[]>;
 };
@@ -75,9 +80,15 @@ const recruitmentStatusLabels = {
 
 export function knownField<T>(
   value: T,
-  provenance: JobListingProvenance,
+  provenance: JobListingProvenance | ProvenanceSet,
 ): KnownField<T> {
-  return { kind: "known", value, provenance };
+  return {
+    kind: "known",
+    value,
+    provenance: Array.isArray(provenance)
+      ? (provenance as ProvenanceSet)
+      : [provenance as JobListingProvenance],
+  };
 }
 
 export function unknownField(): UnknownField {
@@ -88,7 +99,8 @@ export function getDisplayableFieldValue<T>(
   field: SourcedField<T>,
   fallback: T,
 ): T {
-  return field.kind === "known" && field.provenance.permission.display
+  return field.kind === "known" &&
+    field.provenance.some(({ permission }) => permission.display)
     ? field.value
     : fallback;
 }
@@ -98,7 +110,10 @@ export function getRecruitmentStatusLabel(status: RecruitmentStatus): string {
 }
 
 export function getClosingLabel(closesAt: SourcedField<string>): string {
-  if (closesAt.kind === "unknown" || !closesAt.provenance.permission.display) {
+  if (
+    closesAt.kind === "unknown" ||
+    !closesAt.provenance.some(({ permission }) => permission.display)
+  ) {
     return "마감일 미확인";
   }
 

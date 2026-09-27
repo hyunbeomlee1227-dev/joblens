@@ -154,6 +154,51 @@ main {
   padding-bottom: 96px;
 }
 
+.preference-form {
+  align-items: end;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  margin-bottom: 28px;
+  padding: 18px;
+}
+
+.preference-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.preference-form label span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.preference-form select,
+.preference-form button {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.preference-form select {
+  background: white;
+  color: var(--ink);
+}
+
+.preference-form button {
+  background: var(--green-dark);
+  color: white;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .section-heading {
   align-items: end;
   border-bottom: 1px solid var(--line);
@@ -179,6 +224,22 @@ main {
   display: grid;
   gap: 18px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.discovery-notice {
+  align-items: center;
+  background: #fff8e7;
+  border: 1px solid #ead8ad;
+  border-radius: 14px;
+  color: #6e5a2b;
+  display: flex;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+}
+
+.discovery-notice span {
+  font-size: 0.86rem;
 }
 
 .job-card {
@@ -557,6 +618,10 @@ main {
 }
 
 @media (max-width: 900px) {
+  .preference-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .job-grid {
     grid-template-columns: 1fr;
   }
@@ -597,6 +662,10 @@ main {
 
   .hero h1 {
     font-size: 3rem;
+  }
+
+  .preference-form {
+    grid-template-columns: 1fr;
   }
 
   .section-heading,
