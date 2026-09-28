@@ -1,9 +1,5 @@
 export type JobSourceFailureKind =
-  | "transient"
-  | "authentication"
-  | "permission"
-  | "quota"
-  | "unknown";
+  "transient" | "authentication" | "permission" | "quota" | "unknown";
 
 export class JobSourceAdapterError extends Error {
   constructor(
