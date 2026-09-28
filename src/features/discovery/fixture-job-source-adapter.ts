@@ -19,6 +19,7 @@ const permission = defineJobSourcePermission({ display: true });
 type RawFixtureListing = {
   sourceRecordId: string;
   originalUrl: string;
+  stableIdentity?: string;
   employer?: string;
   title?: string;
   location?: string;
@@ -54,6 +55,7 @@ function createFixtureListing(
     id: `${listingSource.id}--${raw.sourceRecordId}`,
     sourceRecordId: raw.sourceRecordId,
     originalUrl: raw.originalUrl,
+    stableIdentity: sourced(raw.stableIdentity),
     employer: sourced(raw.employer),
     title: sourced(raw.title),
     location: sourced(raw.location),
@@ -78,6 +80,7 @@ const fixtureJobListings = [
   createFixtureListing({
     sourceRecordId: "fixture-backend-engineer",
     originalUrl: "https://example.com/jobs/backend-engineer",
+    stableIdentity: "example:backend-engineer",
     employer: "샘플 테크",
     title: "백엔드 엔지니어",
     location: "서울 강남구",
@@ -139,6 +142,7 @@ const partnerFixtureJobListings = [
     {
       sourceRecordId: "partner-backend-engineer",
       originalUrl: "https://example.com/jobs/backend-engineer",
+      stableIdentity: "example:backend-engineer",
       employer: "샘플 테크",
       title: "백엔드 엔지니어",
       location: "서울 강남구",

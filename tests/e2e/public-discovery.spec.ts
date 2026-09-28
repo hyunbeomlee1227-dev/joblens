@@ -68,12 +68,18 @@ test("a visitor can explicitly change every strict discovery preference", async 
   await page.getByRole("button", { name: "조건 적용" }).click();
 
   await expect(page).toHaveURL(/role=.*&region=.*&workArrangement=/);
-  await expect(
-    page.getByRole("article", { name: "프론트엔드 엔지니어 채용공고" }),
-  ).toBeVisible();
+  const frontendListing = page.getByRole("article", {
+    name: "프론트엔드 엔지니어 채용공고",
+  });
+  await expect(frontendListing).toBeVisible();
   await expect(
     page.getByRole("article", { name: "백엔드 엔지니어 채용공고" }),
   ).toHaveCount(0);
+
+  await frontendListing.getByRole("link", { name: "상세 보기" }).click();
+  await expect(
+    page.getByRole("heading", { name: "프론트엔드 엔지니어" }),
+  ).toBeVisible();
 });
 
 test("an empty fixture result is explained instead of looking like an error", async ({

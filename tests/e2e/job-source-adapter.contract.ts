@@ -33,6 +33,7 @@ export function describeJobSourceAdapterContract(
         }
 
         const sourcedFields: readonly SourcedField<unknown>[] = [
+          listing.stableIdentity,
           listing.employer,
           listing.title,
           listing.location,

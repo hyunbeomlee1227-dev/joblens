@@ -60,6 +60,7 @@ export type JobListing = {
   id: string;
   sourceRecordId: string;
   originalUrl: string;
+  stableIdentity: SourcedField<string>;
   employer: SourcedField<string>;
   title: SourcedField<string>;
   location: SourcedField<string>;

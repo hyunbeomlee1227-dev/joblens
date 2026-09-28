@@ -8,7 +8,8 @@ import {
   partnerFixtureJobSourceAdapter,
 } from "./fixture-job-source-adapter";
 import { JobSourceAdapterError } from "./job-source-adapter-error";
-import type { JobListing } from "./job-listing";
+import { getDisplayableFieldValue, type JobListing } from "./job-listing";
+import { listDisplayableJobListings } from "./list-displayable-job-listings";
 
 const fixtureSnapshotTime = new Date("2026-09-21T12:00:00.000Z");
 export const fixturePreferenceOptions = {
@@ -60,6 +61,40 @@ export async function listFixtureJobListings(): Promise<readonly JobListing[]> {
 export async function findFixtureJobListing(
   id: string,
 ): Promise<JobListing | undefined> {
-  const listings = await listFixtureJobListings();
-  return listings.find((listing) => listing.id === id);
+  const sourceListings = (
+    await Promise.all(
+      [fixtureJobSourceAdapter, partnerFixtureJobSourceAdapter].map(
+        listDisplayableJobListings,
+      ),
+    )
+  ).flat();
+  const candidate = sourceListings.find((listing) => listing.id === id);
+  if (candidate === undefined) return undefined;
+
+  const occupation = getDisplayableFieldValue(candidate.occupation, "");
+  const location = getDisplayableFieldValue(candidate.location, "");
+  const workArrangement = getDisplayableFieldValue(
+    candidate.workArrangement,
+    "",
+  );
+  if (occupation === "" || location === "" || workArrangement === "") {
+    return candidate;
+  }
+
+  const result = await discoverJobListings({
+    adapters: [fixtureJobSourceAdapter, partnerFixtureJobSourceAdapter],
+    preferences: {
+      roles: [occupation],
+      regions: [location.split(" ")[0]],
+      workArrangements: [workArrangement],
+    },
+    now: fixtureSnapshotTime,
+  });
+  return result.listings.find(
+    (listing) =>
+      listing.id === id ||
+      (listing.stableIdentity.kind === "known" &&
+        candidate.stableIdentity.kind === "known" &&
+        listing.stableIdentity.value === candidate.stableIdentity.value),
+  );
 }

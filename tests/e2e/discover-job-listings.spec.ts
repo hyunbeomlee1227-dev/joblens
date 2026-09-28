@@ -11,6 +11,7 @@ import {
   knownField,
   type JobListing,
   type SourcedField,
+  unknownField,
 } from "@/features/discovery/job-listing";
 
 test("Job Preferences strictly select role, region, and work arrangement", async () => {
@@ -90,7 +91,8 @@ test("a non-transient source failure is not retried and healthy results stay ava
 });
 
 test("a conservative duplicate is merged while retaining both provenances", async () => {
-  const [original] = await fixtureJobSourceAdapter.listListings();
+  const [fixtureOriginal] = await fixtureJobSourceAdapter.listListings();
+  const original = { ...fixtureOriginal, stableIdentity: unknownField() };
   const duplicate = copyListingForSource(
     original,
     {
@@ -108,7 +110,7 @@ test("a conservative duplicate is merged while retaining both provenances", asyn
   };
 
   const result = await discoverJobListings({
-    adapters: [fixtureJobSourceAdapter, partnerAdapter],
+    adapters: [adapterForListings("joblens-demo", [original]), partnerAdapter],
     preferences: {
       roles: ["백엔드 개발"],
       regions: ["서울"],
@@ -129,6 +131,100 @@ test("a conservative duplicate is merged while retaining both provenances", asyn
         ({ permission }) => permission.retention,
       ),
     ).toEqual([false, true]);
+  }
+});
+
+test("a shared stable identity merges records whose metadata differs", async () => {
+  const [original] = await fixtureJobSourceAdapter.listListings();
+  const copied = copyListingForSource(original, {
+    id: "stable-partner",
+    name: "Stable Partner",
+  });
+  const duplicate: JobListing = {
+    ...copied,
+    title: knownField("서버 엔지니어", copied.provenance[0]),
+  };
+
+  const result = await discoverJobListings({
+    adapters: [
+      adapterForListings("stable-partner", [duplicate]),
+      fixtureJobSourceAdapter,
+    ],
+    preferences: defaultPreferences,
+    now: fixtureNow,
+  });
+
+  expect(result.listings).toHaveLength(1);
+  expect(result.listings[0].provenance).toHaveLength(2);
+});
+
+test("a fresh duplicate remains current regardless of adapter order", async () => {
+  const [fresh] = await fixtureJobSourceAdapter.listListings();
+  const copied = copyListingForSource(fresh, {
+    id: "stale-partner",
+    name: "Stale Partner",
+  });
+  const stale: JobListing = {
+    ...copied,
+    observedAt: "2026-09-19T11:59:59.000Z",
+    provenance: copied.provenance.map((provenance) => ({
+      ...provenance,
+      observedAt: "2026-09-19T11:59:59.000Z",
+    })) as unknown as JobListing["provenance"],
+  };
+  const staleAdapter = adapterForListings("stale-partner", [stale]);
+
+  for (const adapters of [
+    [staleAdapter, fixtureJobSourceAdapter],
+    [fixtureJobSourceAdapter, staleAdapter],
+  ]) {
+    const result = await discoverJobListings({
+      adapters,
+      preferences: defaultPreferences,
+      now: fixtureNow,
+    });
+    expect(result.state).toEqual("available");
+    expect(result.listings).toHaveLength(1);
+    expect(result.listings[0].observedAt).toEqual(fresh.observedAt);
+  }
+});
+
+test("different recruitment evidence kinds retain only their own provenance", async () => {
+  const [original] = await fixtureJobSourceAdapter.listListings();
+  const copied = copyListingForSource(original, {
+    id: "z-closing-date-source",
+    name: "Closing Date Source",
+  });
+  if (copied.recruitment.status === "unknown")
+    throw new Error("fixture status");
+  const duplicate: JobListing = {
+    ...copied,
+    recruitment: {
+      ...copied.recruitment,
+      evidence: {
+        kind: "closing-date",
+        provenance: copied.provenance,
+      },
+    },
+  };
+
+  const result = await discoverJobListings({
+    adapters: [
+      fixtureJobSourceAdapter,
+      adapterForListings("z-closing-date-source", [duplicate]),
+    ],
+    preferences: defaultPreferences,
+    now: fixtureNow,
+  });
+
+  expect(result.listings).toHaveLength(1);
+  const [listing] = result.listings;
+  expect(listing.recruitment.evidence.kind).toEqual("source-status");
+  if (listing.recruitment.evidence.kind !== "unknown") {
+    expect(listing.recruitment.evidence.provenance).toHaveLength(1);
+    expect(listing.recruitment.evidence.provenance[0].source.id).toEqual(
+      "joblens-demo",
+    );
   }
 });
 
@@ -185,6 +281,41 @@ test("conflicting recruitment status is quarantined instead of displayed", async
   expect(result.listings).toEqual([]);
   expect(result.quarantinedCount).toEqual(1);
   if (result.state === "empty") expect(result.reason).toEqual("verification");
+});
+
+test("an unrelated quarantine does not replace the preference empty reason", async () => {
+  const [original] = await fixtureJobSourceAdapter.listListings();
+  const duplicate = copyListingForSource(original, {
+    id: "unrelated-conflict",
+    name: "Unrelated Conflict",
+  });
+  const conflicting: JobListing = {
+    ...duplicate,
+    recruitment: {
+      status: "closed",
+      closesAt: duplicate.recruitment.closesAt,
+      evidence: {
+        kind: "source-status",
+        provenance: duplicate.provenance,
+      },
+    },
+  };
+
+  const result = await discoverJobListings({
+    adapters: [
+      fixtureJobSourceAdapter,
+      adapterForListings("unrelated-conflict", [conflicting]),
+    ],
+    preferences: {
+      roles: ["프론트엔드 개발"],
+      regions: ["서울"],
+      workArrangements: ["하이브리드"],
+    },
+    now: fixtureNow,
+  });
+
+  expect(result.state).toEqual("empty");
+  if (result.state === "empty") expect(result.reason).toEqual("preferences");
 });
 
 test("all unavailable sources are distinct from a healthy empty result", async () => {
@@ -282,6 +413,7 @@ function copyListingForSource(
   return {
     ...listing,
     id: `${source.id}--${listing.sourceRecordId}`,
+    stableIdentity: copyField(listing.stableIdentity),
     employer: copyField(listing.employer),
     title: copyField(listing.title),
     location: copyField(listing.location),

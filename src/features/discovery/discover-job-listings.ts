@@ -72,8 +72,11 @@ export async function discoverJobListings({
   const candidates = sourceResults
     .flatMap((result) => (result.ok ? result.listings : []))
     .flat();
-  const { listings: verifiedListings, quarantinedCount } =
-    mergeDuplicates(candidates);
+  const {
+    listings: verifiedListings,
+    quarantinedListings,
+    quarantinedCount,
+  } = mergeDuplicates(candidates);
   const listings = verifiedListings
     .filter((listing) => isCurrentOpenListing(listing, now))
     .filter((listing) => matchesPreferences(listing, preferences));
@@ -92,10 +95,15 @@ export async function discoverJobListings({
   }
 
   if (listings.length === 0) {
+    const relevantQuarantine = quarantinedListings.some(
+      (listing) =>
+        isCurrentOpenListing(listing, now) &&
+        matchesPreferences(listing, preferences),
+    );
     return {
       state: "empty",
       listings: [],
-      reason: quarantinedCount > 0 ? "verification" : "preferences",
+      reason: relevantQuarantine ? "verification" : "preferences",
       failures: [],
       quarantinedCount,
     };
@@ -106,24 +114,26 @@ export async function discoverJobListings({
 
 function mergeDuplicates(listings: readonly JobListing[]): {
   listings: readonly JobListing[];
+  quarantinedListings: readonly JobListing[];
   quarantinedCount: number;
 } {
   const uniqueListings: JobListing[] = [];
+  const quarantinedListings: JobListing[] = [];
   const quarantinedKeys = new Set<string>();
   let quarantinedCount = 0;
 
   for (const listing of listings) {
-    const identity = getConservativeIdentity(listing);
+    const identity = getListingIdentity(listing);
     if (identity === undefined) {
       uniqueListings.push(listing);
       continue;
     }
-    if (quarantinedKeys.has(identity)) {
+    if (quarantinedKeys.has(identity.key)) {
       continue;
     }
 
     const duplicateIndex = uniqueListings.findIndex(
-      (candidate) => getConservativeIdentity(candidate) === identity,
+      (candidate) => getListingIdentity(candidate)?.key === identity.key,
     );
     if (duplicateIndex === -1) {
       uniqueListings.push(listing);
@@ -133,12 +143,17 @@ function mergeDuplicates(listings: readonly JobListing[]): {
     const duplicate = uniqueListings[duplicateIndex];
     if (hasRecruitmentConflict(duplicate, listing)) {
       uniqueListings.splice(duplicateIndex, 1);
-      quarantinedKeys.add(identity);
+      quarantinedKeys.add(identity.key);
+      quarantinedListings.push(duplicate, listing);
       quarantinedCount += 1;
       continue;
     }
 
-    const merged = mergeCompatibleListings(duplicate, listing);
+    const merged = mergeCompatibleListings(
+      duplicate,
+      listing,
+      identity.kind === "stable",
+    );
     if (merged === undefined) {
       uniqueListings.push(listing);
       continue;
@@ -146,10 +161,20 @@ function mergeDuplicates(listings: readonly JobListing[]): {
     uniqueListings[duplicateIndex] = merged;
   }
 
-  return { listings: uniqueListings, quarantinedCount };
+  return { listings: uniqueListings, quarantinedListings, quarantinedCount };
 }
 
-function getConservativeIdentity(listing: JobListing): string | undefined {
+type ListingIdentity = {
+  key: string;
+  kind: "stable" | "conservative";
+};
+
+function getListingIdentity(listing: JobListing): ListingIdentity | undefined {
+  const stableIdentity = getDisplayableString(listing.stableIdentity);
+  if (stableIdentity !== undefined) {
+    return { key: `stable:${stableIdentity.trim()}`, kind: "stable" };
+  }
+
   const employer = getDisplayableString(listing.employer);
   const title = getDisplayableString(listing.title);
   const location = getDisplayableString(listing.location);
@@ -157,12 +182,16 @@ function getConservativeIdentity(listing: JobListing): string | undefined {
     return undefined;
   }
 
-  return [
-    normalizeIdentityPart(employer),
-    normalizeIdentityPart(title),
-    normalizeIdentityPart(location),
-    listing.originalUrl.trim(),
-  ].join("\u001f");
+  return {
+    key: [
+      "conservative",
+      normalizeIdentityPart(employer),
+      normalizeIdentityPart(title),
+      normalizeIdentityPart(location),
+      listing.originalUrl.trim(),
+    ].join("\u001f"),
+    kind: "conservative",
+  };
 }
 
 function getDisplayableString(field: SourcedField<string>): string | undefined {
@@ -197,22 +226,66 @@ function hasRecruitmentConflict(left: JobListing, right: JobListing): boolean {
 function mergeCompatibleListings(
   left: JobListing,
   right: JobListing,
+  allowStableIdentityDifferences: boolean,
 ): JobListing | undefined {
-  const employer = mergeField(left.employer, right.employer);
-  const title = mergeField(left.title, right.title);
-  const location = mergeField(left.location, right.location);
-  const occupation = mergeField(left.occupation, right.occupation);
+  const preferred = choosePreferredListing(left, right);
+  const preferRight = preferred === right;
+  const stableIdentity = mergeField(
+    left.stableIdentity,
+    right.stableIdentity,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
+  const employer = mergeField(
+    left.employer,
+    right.employer,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
+  const title = mergeField(
+    left.title,
+    right.title,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
+  const location = mergeField(
+    left.location,
+    right.location,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
+  const occupation = mergeField(
+    left.occupation,
+    right.occupation,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
   const workArrangement = mergeField(
     left.workArrangement,
     right.workArrangement,
+    preferRight,
+    allowStableIdentityDifferences,
   );
   const closesAt = mergeField(
     left.recruitment.closesAt,
     right.recruitment.closesAt,
+    preferRight,
+    false,
   );
-  const summary = mergeField(left.summary, right.summary);
-  const highlights = mergeField(left.highlights, right.highlights);
+  const summary = mergeField(
+    left.summary,
+    right.summary,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
+  const highlights = mergeField(
+    left.highlights,
+    right.highlights,
+    preferRight,
+    allowStableIdentityDifferences,
+  );
   const fields = [
+    stableIdentity,
     employer,
     title,
     location,
@@ -233,8 +306,22 @@ function mergeCompatibleListings(
   }
 
   const provenance = mergeProvenance(left.provenance, right.provenance);
+  const preferredEvidence = preferRight
+    ? right.recruitment.evidence
+    : left.recruitment.evidence;
+  const evidence =
+    left.recruitment.evidence.kind === right.recruitment.evidence.kind
+      ? {
+          kind: left.recruitment.evidence.kind,
+          provenance: mergeProvenance(
+            left.recruitment.evidence.provenance,
+            right.recruitment.evidence.provenance,
+          ),
+        }
+      : preferredEvidence;
   return {
-    ...left,
+    ...preferred,
+    stableIdentity: stableIdentity!,
     employer: employer!,
     title: title!,
     location: location!,
@@ -243,13 +330,7 @@ function mergeCompatibleListings(
     recruitment: {
       status: left.recruitment.status,
       closesAt: closesAt!,
-      evidence: {
-        kind: left.recruitment.evidence.kind,
-        provenance: mergeProvenance(
-          left.recruitment.evidence.provenance,
-          right.recruitment.evidence.provenance,
-        ),
-      },
+      evidence,
     },
     provenance,
     summary: summary!,
@@ -260,16 +341,35 @@ function mergeCompatibleListings(
 function mergeField<T>(
   left: SourcedField<T>,
   right: SourcedField<T>,
+  preferRight: boolean,
+  allowDifferentValues: boolean,
 ): SourcedField<T> | undefined {
   if (left.kind === "unknown") return right;
   if (right.kind === "unknown") return left;
   if (JSON.stringify(left.value) !== JSON.stringify(right.value)) {
-    return undefined;
+    return allowDifferentValues ? (preferRight ? right : left) : undefined;
   }
   return knownField(
     left.value,
     mergeProvenance(left.provenance, right.provenance),
   );
+}
+
+function choosePreferredListing(
+  left: JobListing,
+  right: JobListing,
+): JobListing {
+  const observedDifference =
+    Date.parse(right.observedAt) - Date.parse(left.observedAt);
+  if (observedDifference !== 0) {
+    return observedDifference > 0 ? right : left;
+  }
+
+  return right.provenance[0].source.id.localeCompare(
+    left.provenance[0].source.id,
+  ) < 0
+    ? right
+    : left;
 }
 
 function mergeProvenance(
@@ -285,6 +385,9 @@ function mergeProvenance(
       merged.push(provenance);
     }
   }
+  merged.sort((leftItem, rightItem) =>
+    provenanceKey(leftItem).localeCompare(provenanceKey(rightItem)),
+  );
   return merged as unknown as ProvenanceSet;
 }
 
