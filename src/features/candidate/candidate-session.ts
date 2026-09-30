@@ -159,7 +159,9 @@ export function createCandidateSessionManager({
     try {
       await identityProvider.deleteCandidate(accessToken);
     } catch (error) {
-      await store.cancelCandidateDeletion(record.candidateSubject);
+      // The provider may have accepted the deletion even if its response was
+      // lost. Keep the durable marker so local data is cleaned after the
+      // reconciliation delay instead of stranding Candidate-owned data.
       throw error;
     }
     await store.confirmCandidateDeletion(record.candidateSubject);

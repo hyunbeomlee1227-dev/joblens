@@ -57,25 +57,15 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
     refreshToken: string;
     accessTokenExpiresAt: Date;
   }> {
-    const response = await this.request(
-      new URL("/oauth2/token", this.configuration.domain),
-      {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(
-            `${this.configuration.clientId}:${this.configuration.clientSecret}`,
-          ).toString("base64")}`,
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: this.configuration.clientId,
-          code: input.code,
-          redirect_uri: this.configuration.redirectUri,
-          code_verifier: input.codeVerifier,
-        }),
-        cache: "no-store",
-      },
+    const response = await this.oauthRequest(
+      "/oauth2/token",
+      new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: this.configuration.clientId,
+        code: input.code,
+        redirect_uri: this.configuration.redirectUri,
+        code_verifier: input.codeVerifier,
+      }),
     );
     if (!response.ok) throw new Error("Cognito code exchange failed");
     const tokens = (await response.json()) as {
@@ -121,22 +111,12 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
   }
 
   async revokeSession(refreshToken: string): Promise<void> {
-    const response = await this.request(
-      new URL("/oauth2/revoke", this.configuration.domain),
-      {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(
-            `${this.configuration.clientId}:${this.configuration.clientSecret}`,
-          ).toString("base64")}`,
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          token: refreshToken,
-          client_id: this.configuration.clientId,
-        }),
-        cache: "no-store",
-      },
+    const response = await this.oauthRequest(
+      "/oauth2/revoke",
+      new URLSearchParams({
+        token: refreshToken,
+        client_id: this.configuration.clientId,
+      }),
     );
     if (!response.ok) throw new Error("Cognito session revocation failed");
   }
@@ -145,23 +125,13 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
     accessToken: string;
     accessTokenExpiresAt: Date;
   }> {
-    const response = await this.request(
-      new URL("/oauth2/token", this.configuration.domain),
-      {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${Buffer.from(
-            `${this.configuration.clientId}:${this.configuration.clientSecret}`,
-          ).toString("base64")}`,
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: this.configuration.clientId,
-          refresh_token: refreshToken,
-        }),
-        cache: "no-store",
-      },
+    const response = await this.oauthRequest(
+      "/oauth2/token",
+      new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: this.configuration.clientId,
+        refresh_token: refreshToken,
+      }),
     );
     if (!response.ok) throw new Error("Cognito token refresh failed");
     const tokens = (await response.json()) as {
@@ -190,5 +160,19 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
     await this.cognito.send(
       new DeleteUserCommand({ AccessToken: accessToken }),
     );
+  }
+
+  private oauthRequest(path: string, body: URLSearchParams): Promise<Response> {
+    return this.request(new URL(path, this.configuration.domain), {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${Buffer.from(
+          `${this.configuration.clientId}:${this.configuration.clientSecret}`,
+        ).toString("base64")}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body,
+      cache: "no-store",
+    });
   }
 }

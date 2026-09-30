@@ -25,14 +25,12 @@ type CandidateAuthRuntime = {
 const awsRegion = process.env.AWS_REGION ?? "ap-northeast-2";
 
 let runtimePromise: Promise<CandidateAuthRuntime | null> | undefined;
+let maintenanceTimer: ReturnType<typeof setInterval> | undefined;
 
 export async function getCandidateAuthRuntime(): Promise<CandidateAuthRuntime | null> {
   runtimePromise ??= buildRuntime();
   const runtime = await runtimePromise;
   if (runtime === null) runtimePromise = undefined;
-  if (runtime !== null) {
-    await runtime.manager.resumePendingDeletions().catch(() => undefined);
-  }
   return runtime;
 }
 
@@ -55,6 +53,7 @@ async function buildRuntime(): Promise<CandidateAuthRuntime | null> {
     new CognitoIdentityProviderClient({ region: awsRegion }),
   );
   const manager = createCandidateSessionManager({ store, identityProvider });
+  startCandidateMaintenance(manager);
   return {
     appOrigin: configuration.appOrigin,
     oauthTransactionKey: configuration.oauthTransactionKey,
@@ -65,6 +64,20 @@ async function buildRuntime(): Promise<CandidateAuthRuntime | null> {
       allowedOrigin: configuration.appOrigin,
     }),
   };
+}
+
+function startCandidateMaintenance(
+  manager: ReturnType<typeof createCandidateSessionManager>,
+): void {
+  if (maintenanceTimer !== undefined) return;
+  const run = () => {
+    void manager.resumePendingDeletions().catch((error: unknown) => {
+      console.error("Candidate deletion maintenance failed", error);
+    });
+  };
+  run();
+  maintenanceTimer = setInterval(run, 60_000);
+  maintenanceTimer.unref();
 }
 
 async function readConfiguration(): Promise<{

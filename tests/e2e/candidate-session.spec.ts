@@ -211,8 +211,9 @@ test("account deletion removes every session and preferences owned by the Cognit
   });
 });
 
-test("a failed identity deletion rolls back the deletion gate so the Candidate can retry", async () => {
+test("an ambiguous identity deletion failure keeps delayed local cleanup durable", async () => {
   const store = new InMemoryCandidateSessionStore();
+  let currentTime = new Date("2026-09-29T00:00:00.000Z");
   const manager = createCandidateSessionManager({
     identityProvider: {
       ...identityProvider,
@@ -221,9 +222,14 @@ test("a failed identity deletion rolls back the deletion gate so the Candidate c
       },
     },
     store,
-    now: () => new Date("2026-09-29T00:00:00.000Z"),
+    now: () => currentTime,
     generateSecret: (() => {
-      const secrets = ["retry-session", "retry-csrf"];
+      const secrets = [
+        "retry-session",
+        "retry-csrf",
+        "retry-rotated-session",
+        "retry-rotated-csrf",
+      ];
       return () => secrets.shift()!;
     })(),
   });
@@ -234,15 +240,29 @@ test("a failed identity deletion rolls back the deletion gate so the Candidate c
     expiresAt: new Date("2026-09-30T00:00:00.000Z"),
   });
 
+  const rotated = await manager.savePreferences({
+    sessionId: session.sessionId,
+    csrfToken: session.csrfToken,
+    preferences: {
+      roles: ["백엔드 개발"],
+      regions: ["서울"],
+      workArrangements: ["주 3일 오피스"],
+    },
+  });
+
   await expect(
     manager.deleteAccount({
-      sessionId: session.sessionId,
-      csrfToken: session.csrfToken,
+      sessionId: rotated.sessionId,
+      csrfToken: rotated.csrfToken,
     }),
   ).rejects.toThrow("Cognito unavailable");
-  await expect(manager.read(session.sessionId)).resolves.toMatchObject({
-    candidateSubject: "candidate-retry",
-  });
+  await expect(manager.read(rotated.sessionId)).resolves.toBeNull();
+  await expect(
+    store.readPreferences("candidate-retry"),
+  ).resolves.not.toBeNull();
+  currentTime = new Date("2026-09-29T00:06:00.000Z");
+  await manager.resumePendingDeletions();
+  await expect(store.readPreferences("candidate-retry")).resolves.toBeNull();
 });
 
 test("a deletion gate blocks new sessions and existing session reads", async () => {
