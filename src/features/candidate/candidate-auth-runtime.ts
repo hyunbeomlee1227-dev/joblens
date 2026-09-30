@@ -30,6 +30,9 @@ export async function getCandidateAuthRuntime(): Promise<CandidateAuthRuntime | 
   runtimePromise ??= buildRuntime();
   const runtime = await runtimePromise;
   if (runtime === null) runtimePromise = undefined;
+  if (runtime !== null) {
+    await runtime.manager.resumePendingDeletions().catch(() => undefined);
+  }
   return runtime;
 }
 

@@ -265,7 +265,10 @@ test("a deletion gate blocks new sessions and existing session reads", async () 
     refreshToken: "refresh-existing",
     expiresAt: new Date("2026-09-30T00:00:00.000Z"),
   });
-  await store.beginCandidateDeletion("candidate-deleting");
+  await store.beginCandidateDeletion(
+    "candidate-deleting",
+    new Date("2026-09-29T00:05:00.000Z"),
+  );
 
   await expect(manager.read(existing.sessionId)).resolves.toBeNull();
   await expect(
@@ -321,6 +324,7 @@ test("a durable deletion gate resumes local cleanup after Cognito deletion", asy
       csrfToken: session.csrfToken,
     }),
   ).rejects.toThrow("DynamoDB unavailable");
+  await manager.resumePendingDeletions();
   await expect(manager.read(session.sessionId)).resolves.toBeNull();
   await expect(store.readPreferences("candidate-cleanup")).resolves.toBeNull();
   expect(cleanupAttempts).toBe(2);

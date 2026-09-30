@@ -123,13 +123,18 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
       : null;
   }
 
-  async beginCandidateDeletion(candidateSubject: string): Promise<void> {
+  async beginCandidateDeletion(
+    candidateSubject: string,
+    cleanupAfter: Date,
+  ): Promise<void> {
     await this.client.send(
       new PutCommand({
         TableName: this.tableName,
         Item: {
           ...deletionKey(candidateSubject),
+          candidateSubject,
           phase: "identity-pending",
+          cleanupAfterEpoch: Math.ceil(cleanupAfter.getTime() / 1000),
         },
       }),
     );
@@ -141,7 +146,9 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
         TableName: this.tableName,
         Item: {
           ...deletionKey(candidateSubject),
+          candidateSubject,
           phase: "cleanup-ready",
+          cleanupAfterEpoch: 0,
         },
       }),
     );
@@ -154,6 +161,36 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
         Key: deletionKey(candidateSubject),
       }),
     );
+  }
+
+  async listCandidateDeletionsReady(before: Date): Promise<string[]> {
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    const candidateSubjects: string[] = [];
+    do {
+      const response = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: "pk = :deletionPartition",
+          ExpressionAttributeValues: {
+            ":deletionPartition": "CANDIDATE_DELETION",
+          },
+          ProjectionExpression: "candidateSubject, cleanupAfterEpoch",
+          ConsistentRead: true,
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+      for (const item of response.Items ?? []) {
+        if (
+          typeof item.candidateSubject === "string" &&
+          typeof item.cleanupAfterEpoch === "number" &&
+          item.cleanupAfterEpoch <= Math.floor(before.getTime() / 1000)
+        ) {
+          candidateSubjects.push(item.candidateSubject);
+        }
+      }
+      exclusiveStartKey = response.LastEvaluatedKey;
+    } while (exclusiveStartKey !== undefined);
+    return candidateSubjects;
   }
 
   async readPreferences(
@@ -212,9 +249,10 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
           ExclusiveStartKey: exclusiveStartKey,
         }),
       );
-      const candidateKeys = (response.Items ?? []).flatMap(({ pk, sk }) =>
-        sk === "DELETION" ? [] : [{ pk, sk }],
-      );
+      const candidateKeys = (response.Items ?? []).map(({ pk, sk }) => ({
+        pk,
+        sk,
+      }));
       const sessionKeys = (response.Items ?? []).flatMap(({ sk }) =>
         typeof sk === "string" && sk.startsWith("SESSION#")
           ? [sessionKey(sk.slice("SESSION#".length))]
@@ -269,7 +307,10 @@ function candidatePartition(candidateSubject: string): string {
 }
 
 function deletionKey(candidateSubject: string) {
-  return { pk: candidatePartition(candidateSubject), sk: "DELETION" };
+  return {
+    pk: "CANDIDATE_DELETION",
+    sk: candidatePartition(candidateSubject),
+  };
 }
 
 function sessionOwnershipKey(candidateSubject: string, idHash: string) {

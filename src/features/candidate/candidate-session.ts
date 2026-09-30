@@ -25,9 +25,13 @@ export type CandidateSessionStore = {
   readCandidateDeletionPhase(
     candidateSubject: string,
   ): Promise<"identity-pending" | "cleanup-ready" | null>;
-  beginCandidateDeletion(candidateSubject: string): Promise<void>;
+  beginCandidateDeletion(
+    candidateSubject: string,
+    cleanupAfter: Date,
+  ): Promise<void>;
   confirmCandidateDeletion(candidateSubject: string): Promise<void>;
   cancelCandidateDeletion(candidateSubject: string): Promise<void>;
+  listCandidateDeletionsReady(before: Date): Promise<string[]>;
   readPreferences(candidateSubject: string): Promise<JobPreferences | null>;
   savePreferences(
     candidateSubject: string,
@@ -148,7 +152,10 @@ export function createCandidateSessionManager({
         ? record.accessToken
         : (await identityProvider.refreshSession(record.refreshToken))
             .accessToken;
-    await store.beginCandidateDeletion(record.candidateSubject);
+    await store.beginCandidateDeletion(
+      record.candidateSubject,
+      new Date(now().getTime() + 5 * 60 * 1000),
+    );
     try {
       await identityProvider.deleteCandidate(accessToken);
     } catch (error) {
@@ -157,6 +164,13 @@ export function createCandidateSessionManager({
     }
     await store.confirmCandidateDeletion(record.candidateSubject);
     await store.deleteCandidate(record.candidateSubject);
+  }
+
+  async function resumePendingDeletions(): Promise<void> {
+    const candidateSubjects = await store.listCandidateDeletionsReady(now());
+    for (const candidateSubject of candidateSubjects) {
+      await store.deleteCandidate(candidateSubject);
+    }
   }
 
   async function readActiveRecord(
@@ -198,7 +212,14 @@ export function createCandidateSessionManager({
     return record;
   }
 
-  return { start, read, savePreferences, logout, deleteAccount };
+  return {
+    start,
+    read,
+    savePreferences,
+    logout,
+    deleteAccount,
+    resumePendingDeletions,
+  };
 }
 
 export type CandidateSessionManager = ReturnType<
@@ -232,7 +253,10 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
   readonly #preferences = new Map<string, JobPreferences>();
   readonly #deletionPhases = new Map<
     string,
-    "identity-pending" | "cleanup-ready"
+    {
+      phase: "identity-pending" | "cleanup-ready";
+      cleanupAfter: Date;
+    }
   >();
 
   async readSession(idHash: string): Promise<CandidateSessionRecord | null> {
@@ -260,19 +284,35 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
   async readCandidateDeletionPhase(
     candidateSubject: string,
   ): Promise<"identity-pending" | "cleanup-ready" | null> {
-    return this.#deletionPhases.get(candidateSubject) ?? null;
+    return this.#deletionPhases.get(candidateSubject)?.phase ?? null;
   }
 
-  async beginCandidateDeletion(candidateSubject: string): Promise<void> {
-    this.#deletionPhases.set(candidateSubject, "identity-pending");
+  async beginCandidateDeletion(
+    candidateSubject: string,
+    cleanupAfter: Date,
+  ): Promise<void> {
+    this.#deletionPhases.set(candidateSubject, {
+      phase: "identity-pending",
+      cleanupAfter,
+    });
   }
 
   async confirmCandidateDeletion(candidateSubject: string): Promise<void> {
-    this.#deletionPhases.set(candidateSubject, "cleanup-ready");
+    this.#deletionPhases.set(candidateSubject, {
+      phase: "cleanup-ready",
+      cleanupAfter: new Date(0),
+    });
   }
 
   async cancelCandidateDeletion(candidateSubject: string): Promise<void> {
     this.#deletionPhases.delete(candidateSubject);
+  }
+
+  async listCandidateDeletionsReady(before: Date): Promise<string[]> {
+    return [...this.#deletionPhases.entries()].flatMap(
+      ([candidateSubject, deletion]) =>
+        deletion.cleanupAfter <= before ? [candidateSubject] : [],
+    );
   }
 
   async readPreferences(
