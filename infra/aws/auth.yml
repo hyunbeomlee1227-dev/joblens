@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Google-only Cognito authentication and server-side Candidate sessions for JobLens.
+
+Parameters:
+  AppOrigin:
+    Type: String
+    Default: https://www.hyunbeom.site
+    AllowedPattern: "^https://[A-Za-z0-9.-]+$"
+  CognitoDomainPrefix:
+    Type: String
+    AllowedPattern: "^[a-z0-9-]{1,63}$"
+  GoogleClientId:
+    Type: String
+    NoEcho: true
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+  OAuthTransactionKey:
+    Type: String
+    NoEcho: true
+    Description: Exactly 32 random bytes encoded as base64.
+  RuntimeRoleName:
+    Type: String
+    Description: EC2 instance role that reads auth configuration and Candidate data.
+
+Resources:
+  CandidateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: joblens-test-candidate
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: candidateSubject
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: CandidateSubjectIndex
+          KeySchema:
+            - AttributeName: candidateSubject
+              KeyType: HASH
+          Projection:
+            ProjectionType: KEYS_ONLY
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expiresAtEpoch
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  CandidateUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: joblens-test
+      DeletionProtection: ACTIVE
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      UserPoolTags:
+        Project: JobLens
+
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref CandidateUserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: openid
+      AttributeMapping:
+        username: sub
+
+  CandidateUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref CandidateUserPool
+
+  CandidateUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: GoogleIdentityProvider
+    Properties:
+      ClientName: joblens-bff
+      UserPoolId: !Ref CandidateUserPool
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+      CallbackURLs:
+        - !Sub ${AppOrigin}/auth/callback
+      LogoutURLs:
+        - !Ref AppOrigin
+      SupportedIdentityProviders:
+        - Google
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  CandidateAuthSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: joblens/test/auth
+      Description: Server-only Cognito and Candidate session configuration.
+      SecretString: !Sub
+        - >-
+          {"appOrigin":"${AppOrigin}","oauthTransactionKey":"${OAuthTransactionKey}","tableName":"${CandidateTable}","issuer":"https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${CandidateUserPool}","domain":"https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com","clientId":"${CandidateUserPoolClient}","clientSecret":"${ClientSecret}","redirectUri":"${AppOrigin}/auth/callback","logoutUri":"${AppOrigin}"}
+        - ClientSecret: !GetAtt CandidateUserPoolClient.ClientSecret
+      Tags:
+        - Key: Project
+          Value: JobLens
+
+  CandidateRuntimePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: joblens-test-candidate-runtime
+      Roles:
+        - !Ref RuntimeRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadAuthConfiguration
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref CandidateAuthSecret
+          - Sid: UseCandidateTable
+            Effect: Allow
+            Action:
+              - dynamodb:BatchWriteItem
+              - dynamodb:DeleteItem
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:TransactWriteItems
+            Resource:
+              - !GetAtt CandidateTable.Arn
+              - !Sub ${CandidateTable.Arn}/index/CandidateSubjectIndex
+
+Outputs:
+  CandidateTableName:
+    Value: !Ref CandidateTable
+  CognitoUserPoolId:
+    Value: !Ref CandidateUserPool
+  CognitoClientId:
+    Value: !Ref CandidateUserPoolClient
+  CognitoDomain:
+    Value: !Sub https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com
+  GoogleAuthorizedRedirectUri:
+    Value: !Sub https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com/oauth2/idpresponse
+  CandidateAuthSecretArn:
+    Value: !Ref CandidateAuthSecret

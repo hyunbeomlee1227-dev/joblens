@@ -17,6 +17,11 @@
     "test:e2e": "npm run build && playwright test"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1142.0",
+    "@aws-sdk/client-dynamodb": "^3.1142.0",
+    "@aws-sdk/client-secrets-manager": "^3.1142.0",
+    "@aws-sdk/lib-dynamodb": "^3.1142.0",
+    "jose": "^6.2.12",
     "next": "16.3.5",
     "react": "19.3.0",
     "react-dom": "19.3.0"

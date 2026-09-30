@@ -52,6 +52,18 @@ The wizard first runs the same release checks as CI. It then asks for the budget
 
 After setup, a successful CI run on `main` builds an immutable image and deploys it through Systems Manager. The instance first checks the new image on a private canary port. If the local check fails, the running release stays in place; if the public CloudFront check fails after switching, the workflow restores the previous image. The `joblens-test-operations` CloudWatch dashboard shows instance health and application errors. The `joblens-test-monthly-cost` budget and Cost Explorer use the `Project=JobLens` cost-allocation tag, which AWS can take up to 24 hours to expose after activation, to isolate application spending and alert at 50%, 80%, and a forecast of 100%.
 
+## Enable Google-only Candidate login
+
+Candidate login uses Google through Amazon Cognito. The browser receives only an opaque, `HttpOnly`, `Secure`, `SameSite=Lax` JobLens session cookie; Cognito access and refresh tokens remain in the server-side DynamoDB session. Candidate preferences and ownership are keyed by Cognito `sub`, not a browser-provided identifier.
+
+After the public AWS runtime is available, run the guided setup from the repository root:
+
+```bash
+bash scripts/setup-google-auth.sh
+```
+
+The wizard keeps the Google client secret and OAuth transaction key in the ignored `.env.auth` file, passes them to CloudFormation as hidden parameters, and stores the runtime configuration in AWS Secrets Manager. It does not create GitHub secrets or long-lived AWS access keys. The only Google redirect URI is the Cognito social-provider endpoint shown by the wizard; the application callback remains `https://www.hyunbeom.site/auth/callback` inside Cognito.
+
 ## Connect the DNSZi custom domain
 
 The public fixture can use `https://www.hyunbeom.site` without moving DNS hosting from DNSZi to Route 53. The repeatable wizard requests or reuses a non-exportable ACM certificate in `us-east-1`, shows the exact DNS validation record to enter in DNSZi, attaches the certificate and custom hostname to CloudFront, and updates the GitHub `PUBLIC_URL` repository variable only after the public health endpoint succeeds.

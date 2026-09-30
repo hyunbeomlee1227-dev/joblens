@@ -202,6 +202,7 @@ Resources:
       InstanceType: !Ref InstanceType
       MetadataOptions:
         HttpEndpoint: enabled
+        HttpPutResponseHopLimit: 2
         HttpTokens: required
         InstanceMetadataTags: enabled
       NetworkInterfaces:

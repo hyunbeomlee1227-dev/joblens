@@ -1,4 +1,5 @@
 import { JobListingCard } from "@/components/job-listing-card";
+import { getCandidatePageState } from "@/features/candidate/candidate-page-state";
 import {
   defaultFixturePreferences,
   discoverFixtureJobListings,
@@ -16,21 +17,24 @@ type HomePageProps = {
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   const { fixture, role, region, workArrangement } = await searchParams;
+  const candidateState = await getCandidatePageState();
+  const savedPreferences = candidateState?.preferences;
   const selected = {
     role: selectAllowed(
       role,
       fixturePreferenceOptions.roles,
-      defaultFixturePreferences.roles[0],
+      savedPreferences?.roles[0] ?? defaultFixturePreferences.roles[0],
     ),
     region: selectAllowed(
       region,
       fixturePreferenceOptions.regions,
-      defaultFixturePreferences.regions[0],
+      savedPreferences?.regions[0] ?? defaultFixturePreferences.regions[0],
     ),
     workArrangement: selectAllowed(
       workArrangement,
       fixturePreferenceOptions.workArrangements,
-      defaultFixturePreferences.workArrangements[0],
+      savedPreferences?.workArrangements[0] ??
+        defaultFixturePreferences.workArrangements[0],
     ),
   };
   const result = await discoverFixtureJobListings(fixture, {
@@ -49,12 +53,53 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           지역과 직군 정보를 한눈에 살펴보고, 관심 있는 공고의 출처로 바로
           이동하세요.
         </p>
+        {candidateState === null ? (
+          <a className="google-login" href="/auth/google">
+            Google로 로그인
+          </a>
+        ) : (
+          <div className="candidate-session-panel">
+            <strong>Google 로그인 세션</strong>
+            <span>저장한 선호 조건을 이 브라우저 세션에 적용합니다.</span>
+            <div>
+              <form action="/api/auth/logout" method="post">
+                <input
+                  name="csrfToken"
+                  type="hidden"
+                  value={candidateState.csrfToken}
+                />
+                <button type="submit">로그아웃</button>
+              </form>
+              <form action="/api/candidate/account" method="post">
+                <input
+                  name="csrfToken"
+                  type="hidden"
+                  value={candidateState.csrfToken}
+                />
+                <button className="danger-button" type="submit">
+                  계정 삭제
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="discovery-section" aria-labelledby="listing-count">
-        <form className="preference-form" method="get">
+        <form
+          action={candidateState === null ? "/" : "/api/candidate/preferences"}
+          className="preference-form"
+          method={candidateState === null ? "get" : "post"}
+        >
           {fixture ? (
             <input name="fixture" type="hidden" value={fixture} />
+          ) : null}
+          {candidateState ? (
+            <input
+              name="csrfToken"
+              type="hidden"
+              value={candidateState.csrfToken}
+            />
           ) : null}
           <label>
             <span>직군</span>
@@ -83,7 +128,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               ))}
             </select>
           </label>
-          <button type="submit">조건 적용</button>
+          <button type="submit">
+            {candidateState === null ? "조건 적용" : "조건 저장·적용"}
+          </button>
         </form>
 
         <div className="section-heading">
@@ -139,7 +186,10 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 function selectAllowed<const T extends readonly string[]>(
   value: string | undefined,
   allowed: T,
-  fallback: T[number],
+  fallback: string,
 ): T[number] {
-  return allowed.includes(value as T[number]) ? (value as T[number]) : fallback;
+  if (allowed.includes(value as T[number])) return value as T[number];
+  return allowed.includes(fallback as T[number])
+    ? (fallback as T[number])
+    : allowed[0];
 }
