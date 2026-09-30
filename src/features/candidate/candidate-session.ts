@@ -22,8 +22,11 @@ export type CandidateSessionStore = {
     session: CandidateSessionRecord,
   ): Promise<void>;
   deleteSession(idHash: string, candidateSubject: string): Promise<void>;
-  isCandidateDeletionPending(candidateSubject: string): Promise<boolean>;
+  readCandidateDeletionPhase(
+    candidateSubject: string,
+  ): Promise<"identity-pending" | "cleanup-ready" | null>;
   beginCandidateDeletion(candidateSubject: string): Promise<void>;
+  confirmCandidateDeletion(candidateSubject: string): Promise<void>;
   cancelCandidateDeletion(candidateSubject: string): Promise<void>;
   readPreferences(candidateSubject: string): Promise<JobPreferences | null>;
   savePreferences(
@@ -152,6 +155,7 @@ export function createCandidateSessionManager({
       await store.cancelCandidateDeletion(record.candidateSubject);
       throw error;
     }
+    await store.confirmCandidateDeletion(record.candidateSubject);
     await store.deleteCandidate(record.candidateSubject);
   }
 
@@ -166,7 +170,19 @@ export function createCandidateSessionManager({
       await store.deleteSession(idHash, record.candidateSubject);
       return null;
     }
-    if (await store.isCandidateDeletionPending(record.candidateSubject)) {
+    const deletionPhase = await store.readCandidateDeletionPhase(
+      record.candidateSubject,
+    );
+    if (deletionPhase === "cleanup-ready") {
+      try {
+        await store.deleteCandidate(record.candidateSubject);
+      } catch {
+        // The durable deletion marker keeps every session blocked and lets a
+        // later request resume cleanup after a transient DynamoDB failure.
+      }
+      return null;
+    }
+    if (deletionPhase === "identity-pending") {
       return null;
     }
     return record;
@@ -214,7 +230,10 @@ function hash(value: string): string {
 export class InMemoryCandidateSessionStore implements CandidateSessionStore {
   readonly #sessions = new Map<string, CandidateSessionRecord>();
   readonly #preferences = new Map<string, JobPreferences>();
-  readonly #pendingDeletions = new Set<string>();
+  readonly #deletionPhases = new Map<
+    string,
+    "identity-pending" | "cleanup-ready"
+  >();
 
   async readSession(idHash: string): Promise<CandidateSessionRecord | null> {
     return this.#sessions.get(idHash) ?? null;
@@ -224,7 +243,7 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
     previousIdHash: string | null,
     session: CandidateSessionRecord,
   ): Promise<void> {
-    if (this.#pendingDeletions.has(session.candidateSubject)) {
+    if (this.#deletionPhases.has(session.candidateSubject)) {
       throw new Error("Candidate deletion is pending");
     }
     if (previousIdHash !== null) this.#sessions.delete(previousIdHash);
@@ -238,16 +257,22 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
     this.#sessions.delete(idHash);
   }
 
-  async isCandidateDeletionPending(candidateSubject: string): Promise<boolean> {
-    return this.#pendingDeletions.has(candidateSubject);
+  async readCandidateDeletionPhase(
+    candidateSubject: string,
+  ): Promise<"identity-pending" | "cleanup-ready" | null> {
+    return this.#deletionPhases.get(candidateSubject) ?? null;
   }
 
   async beginCandidateDeletion(candidateSubject: string): Promise<void> {
-    this.#pendingDeletions.add(candidateSubject);
+    this.#deletionPhases.set(candidateSubject, "identity-pending");
+  }
+
+  async confirmCandidateDeletion(candidateSubject: string): Promise<void> {
+    this.#deletionPhases.set(candidateSubject, "cleanup-ready");
   }
 
   async cancelCandidateDeletion(candidateSubject: string): Promise<void> {
-    this.#pendingDeletions.delete(candidateSubject);
+    this.#deletionPhases.delete(candidateSubject);
   }
 
   async readPreferences(
@@ -270,6 +295,6 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
         this.#sessions.delete(idHash);
       }
     }
-    this.#pendingDeletions.delete(candidateSubject);
+    this.#deletionPhases.delete(candidateSubject);
   }
 }

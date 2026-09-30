@@ -277,3 +277,51 @@ test("a deletion gate blocks new sessions and existing session reads", async () 
     }),
   ).rejects.toThrow("Candidate deletion is pending");
 });
+
+test("a durable deletion gate resumes local cleanup after Cognito deletion", async () => {
+  const store = new InMemoryCandidateSessionStore();
+  const deleteCandidate = store.deleteCandidate.bind(store);
+  let cleanupAttempts = 0;
+  store.deleteCandidate = async (candidateSubject) => {
+    cleanupAttempts += 1;
+    if (cleanupAttempts === 1) throw new Error("DynamoDB unavailable");
+    await deleteCandidate(candidateSubject);
+  };
+  const secrets = [
+    "cleanup-session",
+    "cleanup-csrf",
+    "cleanup-rotated-session",
+    "cleanup-rotated-csrf",
+  ];
+  const manager = createCandidateSessionManager({
+    identityProvider,
+    store,
+    now: () => new Date("2026-09-29T00:00:00.000Z"),
+    generateSecret: () => secrets.shift()!,
+  });
+  const started = await manager.start({
+    cognitoSubject: "candidate-cleanup",
+    accessToken: "access-cleanup",
+    refreshToken: "refresh-cleanup",
+    expiresAt: new Date("2026-09-30T00:00:00.000Z"),
+  });
+  const session = await manager.savePreferences({
+    sessionId: started.sessionId,
+    csrfToken: started.csrfToken,
+    preferences: {
+      roles: ["백엔드 개발"],
+      regions: ["서울"],
+      workArrangements: ["주 3일 오피스"],
+    },
+  });
+
+  await expect(
+    manager.deleteAccount({
+      sessionId: session.sessionId,
+      csrfToken: session.csrfToken,
+    }),
+  ).rejects.toThrow("DynamoDB unavailable");
+  await expect(manager.read(session.sessionId)).resolves.toBeNull();
+  await expect(store.readPreferences("candidate-cleanup")).resolves.toBeNull();
+  expect(cleanupAttempts).toBe(2);
+});

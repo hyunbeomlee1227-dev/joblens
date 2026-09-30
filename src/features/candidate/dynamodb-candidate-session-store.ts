@@ -52,7 +52,7 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
       {
         Put: {
           TableName: this.tableName,
-          Item: sessionOwnershipItem(session.candidateSubject, session.idHash),
+          Item: sessionOwnershipKey(session.candidateSubject, session.idHash),
         },
       },
       {
@@ -107,7 +107,9 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
     );
   }
 
-  async isCandidateDeletionPending(candidateSubject: string): Promise<boolean> {
+  async readCandidateDeletionPhase(
+    candidateSubject: string,
+  ): Promise<"identity-pending" | "cleanup-ready" | null> {
     const response = await this.client.send(
       new GetCommand({
         TableName: this.tableName,
@@ -115,14 +117,32 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
         ConsistentRead: true,
       }),
     );
-    return response.Item !== undefined;
+    const phase = response.Item?.phase;
+    return phase === "identity-pending" || phase === "cleanup-ready"
+      ? phase
+      : null;
   }
 
   async beginCandidateDeletion(candidateSubject: string): Promise<void> {
     await this.client.send(
       new PutCommand({
         TableName: this.tableName,
-        Item: deletionKey(candidateSubject),
+        Item: {
+          ...deletionKey(candidateSubject),
+          phase: "identity-pending",
+        },
+      }),
+    );
+  }
+
+  async confirmCandidateDeletion(candidateSubject: string): Promise<void> {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          ...deletionKey(candidateSubject),
+          phase: "cleanup-ready",
+        },
       }),
     );
   }
@@ -192,10 +212,9 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
           ExclusiveStartKey: exclusiveStartKey,
         }),
       );
-      const candidateKeys = (response.Items ?? []).map(({ pk, sk }) => ({
-        pk,
-        sk,
-      }));
+      const candidateKeys = (response.Items ?? []).flatMap(({ pk, sk }) =>
+        sk === "DELETION" ? [] : [{ pk, sk }],
+      );
       const sessionKeys = (response.Items ?? []).flatMap(({ sk }) =>
         typeof sk === "string" && sk.startsWith("SESSION#")
           ? [sessionKey(sk.slice("SESSION#".length))]
@@ -211,6 +230,7 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
       }
       exclusiveStartKey = response.LastEvaluatedKey;
     } while (exclusiveStartKey !== undefined);
+    await this.cancelCandidateDeletion(candidateSubject);
   }
 }
 
@@ -257,8 +277,4 @@ function sessionOwnershipKey(candidateSubject: string, idHash: string) {
     pk: candidatePartition(candidateSubject),
     sk: `SESSION#${idHash}`,
   };
-}
-
-function sessionOwnershipItem(candidateSubject: string, idHash: string) {
-  return sessionOwnershipKey(candidateSubject, idHash);
 }
