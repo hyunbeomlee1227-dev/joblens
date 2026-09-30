@@ -79,7 +79,6 @@ async function readConfiguration(): Promise<{
     clientId: process.env.COGNITO_CLIENT_ID,
     clientSecret: process.env.COGNITO_CLIENT_SECRET,
     redirectUri: process.env.COGNITO_REDIRECT_URI,
-    logoutUri: process.env.COGNITO_LOGOUT_URI,
   };
   if (Object.values(required).every((value) => value !== undefined)) {
     return toRuntimeConfiguration(
@@ -122,8 +121,7 @@ function toRuntimeConfiguration(
     | "domain"
     | "clientId"
     | "clientSecret"
-    | "redirectUri"
-    | "logoutUri",
+    | "redirectUri",
     string
   >,
 ) {
@@ -137,7 +135,6 @@ function toRuntimeConfiguration(
       clientId: values.clientId,
       clientSecret: values.clientSecret,
       redirectUri: values.redirectUri,
-      logoutUri: values.logoutUri,
     },
   };
 }

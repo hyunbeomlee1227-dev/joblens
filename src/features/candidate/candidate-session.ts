@@ -2,6 +2,9 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { JobPreferences } from "@/features/discovery/discover-job-listings";
 
+export class InvalidCandidateCsrfError extends Error {}
+export class InactiveCandidateSessionError extends Error {}
+
 export type CandidateSessionRecord = {
   idHash: string;
   candidateSubject: string;
@@ -18,7 +21,10 @@ export type CandidateSessionStore = {
     previousIdHash: string | null,
     session: CandidateSessionRecord,
   ): Promise<void>;
-  deleteSession(idHash: string): Promise<void>;
+  deleteSession(idHash: string, candidateSubject: string): Promise<void>;
+  isCandidateDeletionPending(candidateSubject: string): Promise<boolean>;
+  beginCandidateDeletion(candidateSubject: string): Promise<void>;
+  cancelCandidateDeletion(candidateSubject: string): Promise<void>;
   readPreferences(candidateSubject: string): Promise<JobPreferences | null>;
   savePreferences(
     candidateSubject: string,
@@ -119,7 +125,7 @@ export function createCandidateSessionManager({
   }): Promise<void> {
     const record = await requireActiveRecord(input.sessionId);
     requireCsrf(record, input.csrfToken);
-    await store.deleteSession(hash(input.sessionId));
+    await store.deleteSession(hash(input.sessionId), record.candidateSubject);
     try {
       await identityProvider.revokeSession(record.refreshToken);
     } catch {
@@ -139,7 +145,13 @@ export function createCandidateSessionManager({
         ? record.accessToken
         : (await identityProvider.refreshSession(record.refreshToken))
             .accessToken;
-    await identityProvider.deleteCandidate(accessToken);
+    await store.beginCandidateDeletion(record.candidateSubject);
+    try {
+      await identityProvider.deleteCandidate(accessToken);
+    } catch (error) {
+      await store.cancelCandidateDeletion(record.candidateSubject);
+      throw error;
+    }
     await store.deleteCandidate(record.candidateSubject);
   }
 
@@ -151,7 +163,10 @@ export function createCandidateSessionManager({
     const record = await store.readSession(idHash);
     if (record === null) return null;
     if (Date.parse(record.expiresAt) <= now().getTime()) {
-      await store.deleteSession(idHash);
+      await store.deleteSession(idHash, record.candidateSubject);
+      return null;
+    }
+    if (await store.isCandidateDeletionPending(record.candidateSubject)) {
       return null;
     }
     return record;
@@ -161,7 +176,9 @@ export function createCandidateSessionManager({
     sessionId: string,
   ): Promise<CandidateSessionRecord> {
     const record = await readActiveRecord(sessionId);
-    if (record === null) throw new Error("Session is not active");
+    if (record === null) {
+      throw new InactiveCandidateSessionError("Session is not active");
+    }
     return record;
   }
 
@@ -186,7 +203,7 @@ function requireCsrf(
   const expected = Buffer.from(hash(record.csrfToken), "hex");
   const actual = Buffer.from(hash(candidateToken), "hex");
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    throw new Error("Invalid CSRF token");
+    throw new InvalidCandidateCsrfError("Invalid CSRF token");
   }
 }
 
@@ -197,6 +214,7 @@ function hash(value: string): string {
 export class InMemoryCandidateSessionStore implements CandidateSessionStore {
   readonly #sessions = new Map<string, CandidateSessionRecord>();
   readonly #preferences = new Map<string, JobPreferences>();
+  readonly #pendingDeletions = new Set<string>();
 
   async readSession(idHash: string): Promise<CandidateSessionRecord | null> {
     return this.#sessions.get(idHash) ?? null;
@@ -206,12 +224,30 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
     previousIdHash: string | null,
     session: CandidateSessionRecord,
   ): Promise<void> {
+    if (this.#pendingDeletions.has(session.candidateSubject)) {
+      throw new Error("Candidate deletion is pending");
+    }
     if (previousIdHash !== null) this.#sessions.delete(previousIdHash);
     this.#sessions.set(session.idHash, session);
   }
 
-  async deleteSession(idHash: string): Promise<void> {
+  async deleteSession(
+    idHash: string,
+    _candidateSubject: string,
+  ): Promise<void> {
     this.#sessions.delete(idHash);
+  }
+
+  async isCandidateDeletionPending(candidateSubject: string): Promise<boolean> {
+    return this.#pendingDeletions.has(candidateSubject);
+  }
+
+  async beginCandidateDeletion(candidateSubject: string): Promise<void> {
+    this.#pendingDeletions.add(candidateSubject);
+  }
+
+  async cancelCandidateDeletion(candidateSubject: string): Promise<void> {
+    this.#pendingDeletions.delete(candidateSubject);
   }
 
   async readPreferences(
@@ -234,5 +270,6 @@ export class InMemoryCandidateSessionStore implements CandidateSessionStore {
         this.#sessions.delete(idHash);
       }
     }
+    this.#pendingDeletions.delete(candidateSubject);
   }
 }

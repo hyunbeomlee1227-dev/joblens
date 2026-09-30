@@ -210,3 +210,70 @@ test("account deletion removes every session and preferences owned by the Cognit
     candidateSubject: "candidate-b",
   });
 });
+
+test("a failed identity deletion rolls back the deletion gate so the Candidate can retry", async () => {
+  const store = new InMemoryCandidateSessionStore();
+  const manager = createCandidateSessionManager({
+    identityProvider: {
+      ...identityProvider,
+      async deleteCandidate() {
+        throw new Error("Cognito unavailable");
+      },
+    },
+    store,
+    now: () => new Date("2026-09-29T00:00:00.000Z"),
+    generateSecret: (() => {
+      const secrets = ["retry-session", "retry-csrf"];
+      return () => secrets.shift()!;
+    })(),
+  });
+  const session = await manager.start({
+    cognitoSubject: "candidate-retry",
+    accessToken: "access-retry",
+    refreshToken: "refresh-retry",
+    expiresAt: new Date("2026-09-30T00:00:00.000Z"),
+  });
+
+  await expect(
+    manager.deleteAccount({
+      sessionId: session.sessionId,
+      csrfToken: session.csrfToken,
+    }),
+  ).rejects.toThrow("Cognito unavailable");
+  await expect(manager.read(session.sessionId)).resolves.toMatchObject({
+    candidateSubject: "candidate-retry",
+  });
+});
+
+test("a deletion gate blocks new sessions and existing session reads", async () => {
+  const store = new InMemoryCandidateSessionStore();
+  const secrets = [
+    "existing-session",
+    "existing-csrf",
+    "new-session",
+    "new-csrf",
+  ];
+  const manager = createCandidateSessionManager({
+    identityProvider,
+    store,
+    now: () => new Date("2026-09-29T00:00:00.000Z"),
+    generateSecret: () => secrets.shift()!,
+  });
+  const existing = await manager.start({
+    cognitoSubject: "candidate-deleting",
+    accessToken: "access-existing",
+    refreshToken: "refresh-existing",
+    expiresAt: new Date("2026-09-30T00:00:00.000Z"),
+  });
+  await store.beginCandidateDeletion("candidate-deleting");
+
+  await expect(manager.read(existing.sessionId)).resolves.toBeNull();
+  await expect(
+    manager.start({
+      cognitoSubject: "candidate-deleting",
+      accessToken: "access-new",
+      refreshToken: "refresh-new",
+      expiresAt: new Date("2026-09-30T00:00:00.000Z"),
+    }),
+  ).rejects.toThrow("Candidate deletion is pending");
+});

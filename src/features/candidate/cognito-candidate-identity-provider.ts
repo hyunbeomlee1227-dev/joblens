@@ -12,7 +12,6 @@ export type CognitoConfiguration = {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
-  logoutUri: string;
 };
 
 export class CognitoCandidateIdentityProvider implements CandidateIdentityProvider {

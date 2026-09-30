@@ -16,7 +16,6 @@ test("the authorization request offers Google only with state, nonce, and PKCE",
     clientId: "client-id",
     clientSecret: "server-only-secret",
     redirectUri: "https://www.hyunbeom.site/auth/callback",
-    logoutUri: "https://www.hyunbeom.site",
   });
 
   const url = new URL(

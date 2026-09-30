@@ -1,4 +1,8 @@
-import type { CandidateSessionManager } from "./candidate-session";
+import {
+  InactiveCandidateSessionError,
+  InvalidCandidateCsrfError,
+  type CandidateSessionManager,
+} from "./candidate-session";
 import type { JobPreferences } from "@/features/discovery/discover-job-listings";
 import { fixturePreferenceOptions } from "@/features/discovery/fixture-job-listings";
 
@@ -15,7 +19,7 @@ export function createCandidateBffHandlers({
 }: CandidateBffOptions) {
   async function savePreferences(request: Request): Promise<Response> {
     if (!isAllowedMutation(request, allowedOrigin)) return forbidden();
-    const sessionId = readCookie(request, sessionCookieName);
+    const sessionId = readRequestCookie(request, sessionCookieName);
     if (sessionId === null) return unauthorized();
 
     try {
@@ -56,7 +60,7 @@ export function createCandidateBffHandlers({
     operation: "logout" | "delete",
   ): Promise<Response> {
     if (!isAllowedMutation(request, allowedOrigin)) return forbidden();
-    const sessionId = readCookie(request, sessionCookieName);
+    const sessionId = readRequestCookie(request, sessionCookieName);
     if (sessionId === null) return unauthorized();
     try {
       const body = await readCsrfMutation(request);
@@ -133,7 +137,10 @@ function redirectWithSession(location: URL, sessionId: string): Response {
   });
 }
 
-function readCookie(request: Request, name: string): string | null {
+export function readRequestCookie(
+  request: Request,
+  name: string,
+): string | null {
   const cookies = request.headers.get("cookie")?.split(";") ?? [];
   for (const cookie of cookies) {
     const [candidateName, ...value] = cookie.trim().split("=");
@@ -175,10 +182,10 @@ function hasOneAllowed(
 }
 
 function candidateError(error: unknown): Response {
-  if (error instanceof Error && error.message === "Invalid CSRF token") {
+  if (error instanceof InvalidCandidateCsrfError) {
     return forbidden();
   }
-  if (error instanceof Error && error.message === "Session is not active") {
+  if (error instanceof InactiveCandidateSessionError) {
     return unauthorized();
   }
   return Response.json(

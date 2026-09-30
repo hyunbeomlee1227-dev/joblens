@@ -36,20 +36,11 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        - AttributeName: candidateSubject
-          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      GlobalSecondaryIndexes:
-        - IndexName: CandidateSubjectIndex
-          KeySchema:
-            - AttributeName: candidateSubject
-              KeyType: HASH
-          Projection:
-            ProjectionType: KEYS_ONLY
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       SSESpecification:
@@ -97,6 +88,8 @@ Resources:
       ClientName: joblens-bff
       UserPoolId: !Ref CandidateUserPool
       GenerateSecret: true
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows:
         - code
@@ -127,7 +120,7 @@ Resources:
       Description: Server-only Cognito and Candidate session configuration.
       SecretString: !Sub
         - >-
-          {"appOrigin":"${AppOrigin}","oauthTransactionKey":"${OAuthTransactionKey}","tableName":"${CandidateTable}","issuer":"https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${CandidateUserPool}","domain":"https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com","clientId":"${CandidateUserPoolClient}","clientSecret":"${ClientSecret}","redirectUri":"${AppOrigin}/auth/callback","logoutUri":"${AppOrigin}"}
+          {"appOrigin":"${AppOrigin}","oauthTransactionKey":"${OAuthTransactionKey}","tableName":"${CandidateTable}","issuer":"https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${CandidateUserPool}","domain":"https://${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com","clientId":"${CandidateUserPoolClient}","clientSecret":"${ClientSecret}","redirectUri":"${AppOrigin}/auth/callback"}
         - ClientSecret: !GetAtt CandidateUserPoolClient.ClientSecret
       Tags:
         - Key: Project
@@ -157,7 +150,6 @@ Resources:
               - dynamodb:TransactWriteItems
             Resource:
               - !GetAtt CandidateTable.Arn
-              - !Sub ${CandidateTable.Arn}/index/CandidateSubjectIndex
 
 Outputs:
   CandidateTableName:

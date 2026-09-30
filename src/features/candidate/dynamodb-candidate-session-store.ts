@@ -7,6 +7,7 @@ import {
   QueryCommand,
   TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
+import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 
 import type {
   CandidateSessionRecord,
@@ -40,31 +41,65 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
       ...session,
       expiresAtEpoch: Math.ceil(Date.parse(session.expiresAt) / 1000),
     };
-    if (previousIdHash === null) {
-      await this.client.send(
-        new PutCommand({
+    const writes: NonNullable<TransactWriteCommandInput["TransactItems"]> = [
+      {
+        Put: {
           TableName: this.tableName,
           Item: item,
           ConditionExpression: "attribute_not_exists(pk)",
-        }),
+        },
+      },
+      {
+        Put: {
+          TableName: this.tableName,
+          Item: sessionOwnershipItem(session.candidateSubject, session.idHash),
+        },
+      },
+      {
+        ConditionCheck: {
+          TableName: this.tableName,
+          Key: deletionKey(session.candidateSubject),
+          ConditionExpression: "attribute_not_exists(pk)",
+        },
+      },
+    ];
+    if (previousIdHash !== null) {
+      writes.push(
+        {
+          Delete: {
+            TableName: this.tableName,
+            Key: sessionKey(previousIdHash),
+          },
+        },
+        {
+          Delete: {
+            TableName: this.tableName,
+            Key: sessionOwnershipKey(session.candidateSubject, previousIdHash),
+          },
+        },
       );
-      return;
     }
+    await this.client.send(
+      new TransactWriteCommand({
+        TransactItems: writes,
+      }),
+    );
+  }
 
+  async deleteSession(idHash: string, candidateSubject: string): Promise<void> {
     await this.client.send(
       new TransactWriteCommand({
         TransactItems: [
           {
-            Put: {
+            Delete: {
               TableName: this.tableName,
-              Item: item,
-              ConditionExpression: "attribute_not_exists(pk)",
+              Key: sessionKey(idHash),
             },
           },
           {
             Delete: {
               TableName: this.tableName,
-              Key: sessionKey(previousIdHash),
+              Key: sessionOwnershipKey(candidateSubject, idHash),
             },
           },
         ],
@@ -72,11 +107,31 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
     );
   }
 
-  async deleteSession(idHash: string): Promise<void> {
+  async isCandidateDeletionPending(candidateSubject: string): Promise<boolean> {
+    const response = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: deletionKey(candidateSubject),
+        ConsistentRead: true,
+      }),
+    );
+    return response.Item !== undefined;
+  }
+
+  async beginCandidateDeletion(candidateSubject: string): Promise<void> {
+    await this.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: deletionKey(candidateSubject),
+      }),
+    );
+  }
+
+  async cancelCandidateDeletion(candidateSubject: string): Promise<void> {
     await this.client.send(
       new DeleteCommand({
         TableName: this.tableName,
-        Key: sessionKey(idHash),
+        Key: deletionKey(candidateSubject),
       }),
     );
   }
@@ -99,13 +154,25 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
     preferences: JobPreferences,
   ): Promise<void> {
     await this.client.send(
-      new PutCommand({
-        TableName: this.tableName,
-        Item: {
-          ...candidateKey(candidateSubject),
-          candidateSubject,
-          preferences,
-        },
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: this.tableName,
+              Item: {
+                ...candidateKey(candidateSubject),
+                preferences,
+              },
+            },
+          },
+          {
+            ConditionCheck: {
+              TableName: this.tableName,
+              Key: deletionKey(candidateSubject),
+              ConditionExpression: "attribute_not_exists(pk)",
+            },
+          },
+        ],
       }),
     );
   }
@@ -116,16 +183,25 @@ export class DynamoDbCandidateSessionStore implements CandidateSessionStore {
       const response = await this.client.send(
         new QueryCommand({
           TableName: this.tableName,
-          IndexName: "CandidateSubjectIndex",
-          KeyConditionExpression: "candidateSubject = :candidateSubject",
+          KeyConditionExpression: "pk = :candidateKey",
           ExpressionAttributeValues: {
-            ":candidateSubject": candidateSubject,
+            ":candidateKey": candidatePartition(candidateSubject),
           },
           ProjectionExpression: "pk, sk",
+          ConsistentRead: true,
           ExclusiveStartKey: exclusiveStartKey,
         }),
       );
-      const keys = (response.Items ?? []).map(({ pk, sk }) => ({ pk, sk }));
+      const candidateKeys = (response.Items ?? []).map(({ pk, sk }) => ({
+        pk,
+        sk,
+      }));
+      const sessionKeys = (response.Items ?? []).flatMap(({ sk }) =>
+        typeof sk === "string" && sk.startsWith("SESSION#")
+          ? [sessionKey(sk.slice("SESSION#".length))]
+          : [],
+      );
+      const keys = [...candidateKeys, ...sessionKeys];
       for (let index = 0; index < keys.length; index += 25) {
         await deleteAll(
           this.client,
@@ -163,7 +239,26 @@ function sessionKey(idHash: string) {
 
 function candidateKey(candidateSubject: string) {
   return {
-    pk: `CANDIDATE#${candidateSubject}`,
+    pk: candidatePartition(candidateSubject),
     sk: "PREFERENCES",
   };
+}
+
+function candidatePartition(candidateSubject: string): string {
+  return `CANDIDATE#${candidateSubject}`;
+}
+
+function deletionKey(candidateSubject: string) {
+  return { pk: candidatePartition(candidateSubject), sk: "DELETION" };
+}
+
+function sessionOwnershipKey(candidateSubject: string, idHash: string) {
+  return {
+    pk: candidatePartition(candidateSubject),
+    sk: `SESSION#${idHash}`,
+  };
+}
+
+function sessionOwnershipItem(candidateSubject: string, idHash: string) {
+  return sessionOwnershipKey(candidateSubject, idHash);
 }

@@ -1,4 +1,7 @@
-import { sessionCookie } from "@/features/candidate/candidate-bff";
+import {
+  readRequestCookie,
+  sessionCookie,
+} from "@/features/candidate/candidate-bff";
 import { getCandidateAuthRuntime } from "@/features/candidate/candidate-auth-runtime";
 import { openOAuthTransaction } from "@/features/candidate/oauth-transaction";
 
@@ -10,7 +13,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const sealed = readCookie(request, "joblens_oauth");
+  const sealed = readRequestCookie(request, "joblens_oauth");
   if (code === null || state === null || sealed === null) {
     return authFailure("invalid_callback");
   }
@@ -44,14 +47,6 @@ export async function GET(request: Request) {
   } catch {
     return authFailure("exchange_failed");
   }
-}
-
-function readCookie(request: Request, name: string): string | null {
-  for (const cookie of request.headers.get("cookie")?.split(";") ?? []) {
-    const [candidateName, ...value] = cookie.trim().split("=");
-    if (candidateName === name) return value.join("=");
-  }
-  return null;
 }
 
 function authFailure(reason: string): Response {
