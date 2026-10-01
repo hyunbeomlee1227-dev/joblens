@@ -143,6 +143,7 @@ Resources:
             Effect: Allow
             Action:
               - dynamodb:BatchWriteItem
+              - dynamodb:ConditionCheckItem
               - dynamodb:DeleteItem
               - dynamodb:GetItem
               - dynamodb:PutItem
