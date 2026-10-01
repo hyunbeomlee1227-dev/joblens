@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+import { candidateAuthFailureDiagnostic } from "@/features/candidate/candidate-auth-diagnostic";
 import {
   CognitoCandidateIdentityProvider,
   CognitoOAuthError,
-  cognitoFailureDiagnostic,
 } from "@/features/candidate/cognito-candidate-identity-provider";
 import {
   codeChallenge,
@@ -12,15 +12,17 @@ import {
   sealOAuthTransaction,
 } from "@/features/candidate/oauth-transaction";
 
+const cognitoConfiguration = {
+  issuer:
+    "https://cognito-idp.ap-northeast-2.amazonaws.com/ap-northeast-2_example",
+  domain: "https://joblens-example.auth.ap-northeast-2.amazoncognito.com",
+  clientId: "client-id",
+  clientSecret: "server-only-secret",
+  redirectUri: "https://www.hyunbeom.site/auth/callback",
+};
+
 test("the authorization request offers Google only with state, nonce, and PKCE", () => {
-  const provider = new CognitoCandidateIdentityProvider({
-    issuer:
-      "https://cognito-idp.ap-northeast-2.amazonaws.com/ap-northeast-2_example",
-    domain: "https://joblens-example.auth.ap-northeast-2.amazoncognito.com",
-    clientId: "client-id",
-    clientSecret: "server-only-secret",
-    redirectUri: "https://www.hyunbeom.site/auth/callback",
-  });
+  const provider = new CognitoCandidateIdentityProvider(cognitoConfiguration);
 
   const url = new URL(
     provider.authorizeUrl({
@@ -70,14 +72,7 @@ test("a failed code exchange exposes only safe OAuth diagnostics", async () => {
       { status: 400 },
     );
   const provider = new CognitoCandidateIdentityProvider(
-    {
-      issuer:
-        "https://cognito-idp.ap-northeast-2.amazonaws.com/ap-northeast-2_example",
-      domain: "https://joblens-example.auth.ap-northeast-2.amazoncognito.com",
-      clientId: "client-id",
-      clientSecret: "server-only-secret",
-      redirectUri: "https://www.hyunbeom.site/auth/callback",
-    },
+    cognitoConfiguration,
     undefined,
     request,
   );
@@ -107,7 +102,7 @@ test("an AWS denial diagnostic keeps the action but drops the message", () => {
   );
   failure.name = "AccessDeniedException";
 
-  const diagnostic = cognitoFailureDiagnostic(failure);
+  const diagnostic = candidateAuthFailureDiagnostic(failure);
 
   expect(diagnostic).toEqual({
     name: "AccessDeniedException",

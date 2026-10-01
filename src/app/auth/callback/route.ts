@@ -2,8 +2,8 @@ import {
   readRequestCookie,
   sessionCookie,
 } from "@/features/candidate/candidate-bff";
+import { candidateAuthFailureDiagnostic } from "@/features/candidate/candidate-auth-diagnostic";
 import { getCandidateAuthRuntime } from "@/features/candidate/candidate-auth-runtime";
-import { cognitoFailureDiagnostic } from "@/features/candidate/cognito-candidate-identity-provider";
 import { openOAuthTransaction } from "@/features/candidate/oauth-transaction";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       nonce: transaction.nonce,
     });
   } catch (error) {
-    logAuthFailure("token_exchange", error);
+    logAuthFailure("code_exchange", error);
     return authFailure("exchange_failed");
   }
 
@@ -59,12 +59,12 @@ export async function GET(request: Request) {
 }
 
 function logAuthFailure(
-  phase: "token_exchange" | "session_start",
+  phase: "code_exchange" | "session_start",
   error: unknown,
 ) {
   console.error("Candidate OAuth callback failed", {
     phase,
-    ...cognitoFailureDiagnostic(error),
+    ...candidateAuthFailureDiagnostic(error),
   });
 }
 
