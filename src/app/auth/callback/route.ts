@@ -62,7 +62,7 @@ function logAuthFailure(
   phase: "token_exchange" | "session_start",
   error: unknown,
 ) {
-  console.error("[DEBUG-auth-exchange-v2] Candidate OAuth callback failed", {
+  console.error("Candidate OAuth callback failed", {
     phase,
     ...cognitoFailureDiagnostic(error),
   });
