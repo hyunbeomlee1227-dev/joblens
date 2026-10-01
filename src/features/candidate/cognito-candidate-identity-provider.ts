@@ -14,6 +14,41 @@ export type CognitoConfiguration = {
   redirectUri: string;
 };
 
+export class CognitoOAuthError extends Error {
+  readonly name = "CognitoOAuthError";
+
+  constructor(
+    readonly stage: "code_exchange" | "refresh" | "revoke",
+    readonly status: number,
+    readonly oauthError?: string,
+  ) {
+    super(`Cognito OAuth request failed during ${stage}`);
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      stage: this.stage,
+      status: this.status,
+      ...(this.oauthError === undefined ? {} : { oauthError: this.oauthError }),
+    };
+  }
+}
+
+export function cognitoFailureDiagnostic(
+  error: unknown,
+): Record<string, unknown> {
+  if (error instanceof CognitoOAuthError) return error.toJSON();
+  if (error instanceof Error) {
+    const code = "code" in error ? safeErrorCode(error.code) : undefined;
+    return {
+      name: error.name,
+      ...(code === undefined ? {} : { code }),
+    };
+  }
+  return { name: "UnknownError" };
+}
+
 export class CognitoCandidateIdentityProvider implements CandidateIdentityProvider {
   readonly #jwks;
 
@@ -67,7 +102,9 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
         code_verifier: input.codeVerifier,
       }),
     );
-    if (!response.ok) throw new Error("Cognito code exchange failed");
+    if (!response.ok) {
+      throw await cognitoOAuthError("code_exchange", response);
+    }
     const tokens = (await response.json()) as {
       access_token?: string;
       refresh_token?: string;
@@ -118,7 +155,7 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
         client_id: this.configuration.clientId,
       }),
     );
-    if (!response.ok) throw new Error("Cognito session revocation failed");
+    if (!response.ok) throw await cognitoOAuthError("revoke", response);
   }
 
   async refreshSession(refreshToken: string): Promise<{
@@ -133,7 +170,7 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
         refresh_token: refreshToken,
       }),
     );
-    if (!response.ok) throw new Error("Cognito token refresh failed");
+    if (!response.ok) throw await cognitoOAuthError("refresh", response);
     const tokens = (await response.json()) as {
       access_token?: string;
       expires_in?: number;
@@ -175,4 +212,25 @@ export class CognitoCandidateIdentityProvider implements CandidateIdentityProvid
       cache: "no-store",
     });
   }
+}
+
+async function cognitoOAuthError(
+  stage: CognitoOAuthError["stage"],
+  response: Response,
+): Promise<CognitoOAuthError> {
+  let oauthError: string | undefined;
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    oauthError = safeErrorCode(body.error);
+  } catch {
+    // A non-JSON response still has a useful HTTP status. Never log its body.
+  }
+  return new CognitoOAuthError(stage, response.status, oauthError);
+}
+
+function safeErrorCode(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(value)
+    ? value
+    : undefined;
 }

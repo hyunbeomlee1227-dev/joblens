@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-import { CognitoCandidateIdentityProvider } from "@/features/candidate/cognito-candidate-identity-provider";
+import {
+  CognitoCandidateIdentityProvider,
+  CognitoOAuthError,
+} from "@/features/candidate/cognito-candidate-identity-provider";
 import {
   codeChallenge,
   createOAuthTransaction,
@@ -54,4 +57,45 @@ test("an OAuth transaction is opaque, tamper-evident, and expires after ten minu
   expect(
     openOAuthTransaction(sealed, key, new Date("2026-09-29T00:10:00.000Z")),
   ).toBeNull();
+});
+
+test("a failed code exchange exposes only safe OAuth diagnostics", async () => {
+  const request: typeof fetch = async () =>
+    Response.json(
+      {
+        error: "invalid_grant",
+        error_description: "authorization code and secret-token-value",
+      },
+      { status: 400 },
+    );
+  const provider = new CognitoCandidateIdentityProvider(
+    {
+      issuer:
+        "https://cognito-idp.ap-northeast-2.amazonaws.com/ap-northeast-2_example",
+      domain: "https://joblens-example.auth.ap-northeast-2.amazoncognito.com",
+      clientId: "client-id",
+      clientSecret: "server-only-secret",
+      redirectUri: "https://www.hyunbeom.site/auth/callback",
+    },
+    undefined,
+    request,
+  );
+
+  const failure = await provider
+    .exchangeCode({
+      code: "secret-code",
+      codeVerifier: "secret-verifier",
+      nonce: "nonce",
+    })
+    .catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(CognitoOAuthError);
+  expect(failure).toMatchObject({
+    stage: "code_exchange",
+    status: 400,
+    oauthError: "invalid_grant",
+  });
+  expect(JSON.stringify(failure)).not.toContain("secret-token-value");
+  expect(JSON.stringify(failure)).not.toContain("secret-code");
+  expect(JSON.stringify(failure)).not.toContain("secret-verifier");
 });

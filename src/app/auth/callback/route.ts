@@ -3,6 +3,7 @@ import {
   sessionCookie,
 } from "@/features/candidate/candidate-bff";
 import { getCandidateAuthRuntime } from "@/features/candidate/candidate-auth-runtime";
+import { cognitoFailureDiagnostic } from "@/features/candidate/cognito-candidate-identity-provider";
 import { openOAuthTransaction } from "@/features/candidate/oauth-transaction";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,11 @@ export async function GET(request: Request) {
         ],
       ],
     });
-  } catch {
+  } catch (error) {
+    console.error(
+      "[DEBUG-auth-exchange-v1] Candidate OAuth callback failed",
+      cognitoFailureDiagnostic(error),
+    );
     return authFailure("exchange_failed");
   }
 }
