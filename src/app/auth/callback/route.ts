@@ -23,12 +23,19 @@ export async function GET(request: Request) {
     return authFailure("invalid_state");
   }
 
+  let tokens: Awaited<ReturnType<typeof runtime.identityProvider.exchangeCode>>;
   try {
-    const tokens = await runtime.identityProvider.exchangeCode({
+    tokens = await runtime.identityProvider.exchangeCode({
       code,
       codeVerifier: transaction.codeVerifier,
       nonce: transaction.nonce,
     });
+  } catch (error) {
+    logAuthFailure("token_exchange", error);
+    return authFailure("exchange_failed");
+  }
+
+  try {
     const session = await runtime.manager.start({
       ...tokens,
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
@@ -46,12 +53,19 @@ export async function GET(request: Request) {
       ],
     });
   } catch (error) {
-    console.error(
-      "[DEBUG-auth-exchange-v1] Candidate OAuth callback failed",
-      cognitoFailureDiagnostic(error),
-    );
+    logAuthFailure("session_start", error);
     return authFailure("exchange_failed");
   }
+}
+
+function logAuthFailure(
+  phase: "token_exchange" | "session_start",
+  error: unknown,
+) {
+  console.error("[DEBUG-auth-exchange-v2] Candidate OAuth callback failed", {
+    phase,
+    ...cognitoFailureDiagnostic(error),
+  });
 }
 
 function authFailure(reason: string): Response {

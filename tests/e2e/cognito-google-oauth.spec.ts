@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   CognitoCandidateIdentityProvider,
   CognitoOAuthError,
+  cognitoFailureDiagnostic,
 } from "@/features/candidate/cognito-candidate-identity-provider";
 import {
   codeChallenge,
@@ -98,4 +99,20 @@ test("a failed code exchange exposes only safe OAuth diagnostics", async () => {
   expect(JSON.stringify(failure)).not.toContain("secret-token-value");
   expect(JSON.stringify(failure)).not.toContain("secret-code");
   expect(JSON.stringify(failure)).not.toContain("secret-verifier");
+});
+
+test("an AWS denial diagnostic keeps the action but drops the message", () => {
+  const failure = new Error(
+    "User identity is not authorized to perform: dynamodb:ConditionCheckItem on secret-resource",
+  );
+  failure.name = "AccessDeniedException";
+
+  const diagnostic = cognitoFailureDiagnostic(failure);
+
+  expect(diagnostic).toEqual({
+    name: "AccessDeniedException",
+    awsAction: "dynamodb:ConditionCheckItem",
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain("identity");
+  expect(JSON.stringify(diagnostic)).not.toContain("secret-resource");
 });
