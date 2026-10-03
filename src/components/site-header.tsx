@@ -9,7 +9,15 @@ export function SiteHeader() {
         </span>
         <span>JobLens</span>
       </Link>
-      <span className="header-status">공개 데모</span>
+      <nav className="site-header-nav" aria-label="주요 메뉴">
+        <Link className="header-link" href="/">
+          공고 찾기
+        </Link>
+        <Link className="header-link" href="/resume">
+          이력서 준비
+        </Link>
+        <span className="header-status">공개 데모</span>
+      </nav>
     </header>
   );
 }

@@ -22,9 +22,11 @@
     "@aws-sdk/client-secrets-manager": "^3.1142.0",
     "@aws-sdk/lib-dynamodb": "^3.1142.0",
     "jose": "^6.2.12",
-    "next": "16.3.5",
+    "next": "^16.3.8",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
