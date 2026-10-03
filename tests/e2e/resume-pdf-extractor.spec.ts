@@ -87,3 +87,28 @@ test("invalid format, files over 10 MB, and documents over 10 pages are rejected
   ).rejects.toMatchObject({ code: "too_many_pages" });
   expect(opens).toBe(1);
 });
+
+test("a PDF with valid magic bytes is accepted when the browser leaves MIME metadata empty", async () => {
+  const pages = await extractResumePdf(
+    new File(["%PDF-1.7"], "resume.pdf", { type: "" }),
+    {
+      async openPdf() {
+        return {
+          pageCount: 1,
+          async readPage() {
+            return {
+              text: "Valid resume text from a PDF document.",
+              ocrSource: null,
+            };
+          },
+        };
+      },
+      async recognize() {
+        throw new Error("OCR must not run");
+      },
+    },
+  );
+
+  expect(pages).toHaveLength(1);
+  expect(pages[0]?.method).toBe("text");
+});

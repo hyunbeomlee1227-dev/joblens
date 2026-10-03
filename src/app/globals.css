@@ -811,6 +811,21 @@ main {
   margin: 12px 0 18px;
 }
 
+.resume-identifier-field {
+  margin-top: 18px;
+}
+
+.resume-login-gate {
+  margin: 0 auto;
+  max-width: 640px;
+}
+
+.resume-login-gate p {
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 0 0 22px;
+}
+
 .resume-error,
 .resume-progress {
   border-radius: 10px;

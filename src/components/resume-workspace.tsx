@@ -25,6 +25,7 @@ export function ResumeWorkspace() {
   const pdfInput = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<Stage>("input");
   const [sourceText, setSourceText] = useState("");
+  const [directIdentifiers, setDirectIdentifiers] = useState("");
   const [selectedPdf, setSelectedPdf] = useState<File | null>(null);
   const [segments, setSegments] = useState<ReviewSegment[]>([]);
   const [confirmedSegments, setConfirmedSegments] = useState<Set<string>>(
@@ -42,6 +43,7 @@ export function ResumeWorkspace() {
 
   function beginTextReview() {
     if (sourceText.trim() === "") return;
+    setDirectIdentifiers("");
     setSegments([{ id: "input", label: "입력 내용", text: sourceText }]);
     setConfirmedSegments(new Set());
     setStage("review");
@@ -53,6 +55,7 @@ export function ResumeWorkspace() {
     setErrorMessage(null);
     try {
       const pages = await extractResumePdfInBrowser(selectedPdf, setProgress);
+      setDirectIdentifiers("");
       setSegments(
         pages.map((page) => ({
           id: `page-${page.pageNumber}`,
@@ -107,7 +110,9 @@ export function ResumeWorkspace() {
     }
     setSanitizedResume(
       segments
-        .map((segment) => sanitizeResume(segment.text.trim()))
+        .map((segment) =>
+          sanitizeResume(segment.text.trim(), directIdentifiers.split(/\r?\n/)),
+        )
         .join("\n\n"),
     );
     setPreviewConfirmed(false);
@@ -130,6 +135,7 @@ export function ResumeWorkspace() {
 
   function clearResume() {
     setSourceText("");
+    setDirectIdentifiers("");
     setSelectedPdf(null);
     setSegments([]);
     setConfirmedSegments(new Set());
@@ -156,6 +162,11 @@ export function ResumeWorkspace() {
         <span>
           추출·교정·식별정보 제거는 브라우저에서 처리하며 승인 전에는 서버로
           전송하지 않습니다.
+        </span>
+        <span>
+          현재 단계에서는 Sanitized Resume 승인본까지만 준비합니다. 추천 분석은
+          사용할 수 있는 Job Posting과 비용·개인정보 보호 장치가 연결된 뒤
+          제공됩니다.
         </span>
       </div>
 
@@ -279,6 +290,19 @@ export function ResumeWorkspace() {
               </article>
             ))}
           </div>
+          <label className="resume-field resume-identifier-field">
+            <span>추가로 제거할 이름·주소</span>
+            <textarea
+              value={directIdentifiers}
+              onChange={(event) => setDirectIdentifiers(event.target.value)}
+              placeholder={"이현범\n서울시 강남구 …"}
+              rows={3}
+            />
+          </label>
+          <p className="resume-help">
+            자동으로 제거하기 어려운 이름·주소는 한 줄에 하나씩 입력하세요. 이
+            값도 현재 탭 안에서만 사용됩니다.
+          </p>
           <button
             className="resume-primary-button"
             disabled={!allSegmentsConfirmed}
@@ -343,7 +367,7 @@ export function ResumeWorkspace() {
                   onClick={approve}
                   type="button"
                 >
-                  이 내용으로 추천 분석 승인
+                  Sanitized Resume 승인
                 </button>
               </div>
             </>
@@ -352,6 +376,7 @@ export function ResumeWorkspace() {
               <div className="resume-approved" role="status">
                 <strong>Resume Version {resumeVersion} 승인됨</strong>
                 <span>현재 탭에서만 다음 분석에 사용됩니다.</span>
+                <span>추천 분석 기능은 아직 준비 중입니다.</span>
                 <span>
                   분석 요청 중에는 JobLens 서버와 AWS Bedrock으로 전송되지만,
                   재사용을 위해 서버에 저장하지 않습니다. 새로고침·탭

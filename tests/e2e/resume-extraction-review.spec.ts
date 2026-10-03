@@ -1,20 +1,24 @@
 import { expect, test } from "@playwright/test";
 
-test("the Resume workspace is reachable from the public navigation", async ({
+test("public navigation requires a Visitor to sign in before using the Resume workspace", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByRole("link", { name: "이력서 준비" }).click();
   await expect(page).toHaveURL(/\/resume$/);
   await expect(
-    page.getByRole("heading", { name: "이력서 추출과 검토" }),
+    page.getByRole("heading", { name: "Google 로그인이 필요합니다" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Google로 로그인" }),
+  ).toHaveAttribute("href", "/auth/google");
+  await expect(page.getByLabel("이력서 텍스트")).toHaveCount(0);
 });
 
 test("a Candidate can review, sanitize, and approve pasted Resume text only for the current tab", async ({
   page,
 }) => {
-  await page.goto("/resume");
+  await page.goto("/resume?fixture=candidate");
 
   await expect(
     page.getByRole("heading", { name: "이력서 추출과 검토" }),
@@ -24,7 +28,7 @@ test("a Candidate can review, sanitize, and approve pasted Resume text only for 
     .fill(
       [
         "이현범",
-        "hyunbeom@example.com · 010-1234-5678",
+        "hyunbeom@example.com · 010-1234-5678 · https://portfolio.example.com",
         "Spring Boot 서비스와 React 화면을 개발했습니다.",
       ].join("\n"),
     );
@@ -34,23 +38,28 @@ test("a Candidate can review, sanitize, and approve pasted Resume text only for 
   await expect(review).toHaveValue(/Spring Boot/);
   await review.fill(
     [
-      "hyunbeom@example.com · 010-1234-5678",
+      "이현범 · hyunbeom@example.com · 010-1234-5678 · https://portfolio.example.com",
       "Spring Boot 서비스와 Next.js 화면을 개발했습니다.",
     ].join("\n"),
   );
+  await page.getByLabel("추가로 제거할 이름·주소").fill("이현범");
   await page.getByLabel("입력 내용이 정확합니다").check();
   await page.getByRole("button", { name: "식별정보 제거 및 미리보기" }).click();
 
   const preview = page.getByLabel("전송될 Sanitized Resume 전체 내용");
   await expect(preview).toContainText("[이메일 제거]");
   await expect(preview).toContainText("[전화번호 제거]");
+  await expect(preview).toContainText("[웹 주소 제거]");
+  await expect(preview).toContainText("[직접 식별정보 제거]");
   await expect(preview).toContainText("Next.js 화면");
   await expect(preview).not.toContainText("hyunbeom@example.com");
   await expect(preview).not.toContainText("010-1234-5678");
+  await expect(preview).not.toContainText("portfolio.example.com");
+  await expect(preview).not.toContainText("이현범");
 
   await page.getByLabel("전송될 전체 내용을 확인했습니다").check();
   const approve = page.getByRole("button", {
-    name: "이 내용으로 추천 분석 승인",
+    name: "Sanitized Resume 승인",
   });
   await expect(approve).toBeDisabled();
   await page
@@ -75,7 +84,7 @@ test("a text PDF is extracted into editable pages without uploading the file", a
     if (!["GET", "HEAD"].includes(request.method()))
       uploads.push(request.url());
   });
-  await page.goto("/resume");
+  await page.goto("/resume?fixture=candidate");
 
   await page.getByLabel("PDF 이력서", { exact: true }).setInputFiles({
     name: "english-resume.pdf",
@@ -94,7 +103,7 @@ test("a text PDF is extracted into editable pages without uploading the file", a
 test("editing an approved Resume requires explicit approval for a new version and clearing removes it", async ({
   page,
 }) => {
-  await page.goto("/resume");
+  await page.goto("/resume?fixture=candidate");
   await page
     .getByLabel("이력서 텍스트")
     .fill("Spring Boot 서비스를 운영했습니다.");
@@ -105,9 +114,7 @@ test("editing an approved Resume requires explicit approval for a new version an
   await page
     .getByLabel("이름·주소 등 직접 식별정보가 남아 있지 않습니다")
     .check();
-  await page
-    .getByRole("button", { name: "이 내용으로 추천 분석 승인" })
-    .click();
+  await page.getByRole("button", { name: "Sanitized Resume 승인" }).click();
 
   await page.getByRole("button", { name: "내용 수정" }).click();
   await page
@@ -122,10 +129,11 @@ test("editing an approved Resume requires explicit approval for a new version an
   await page
     .getByLabel("이름·주소 등 직접 식별정보가 남아 있지 않습니다")
     .check();
-  await page
-    .getByRole("button", { name: "이 내용으로 추천 분석 승인" })
-    .click();
+  await page.getByRole("button", { name: "Sanitized Resume 승인" }).click();
   await expect(page.getByText("Resume Version 2 승인됨")).toBeVisible();
+  await expect(
+    page.getByText("추천 분석 기능은 아직 준비 중입니다."),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "이력서 지우기" }).click();
   await expect(page.getByText("Resume Version 2 승인됨")).toHaveCount(0);

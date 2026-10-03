@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import next from "next";
 
 export default async function globalSetup() {
+  process.env.E2E_CANDIDATE_FIXTURE = "enabled";
   const hostname = "127.0.0.1";
   const port = 3000;
   const app = next({ dev: false, hostname, port });

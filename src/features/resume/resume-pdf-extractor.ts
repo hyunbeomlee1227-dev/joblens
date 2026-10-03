@@ -41,7 +41,10 @@ export async function extractResumePdf(
   const signature = new TextDecoder("ascii").decode(
     await file.slice(0, 5).arrayBuffer(),
   );
-  if (file.type !== "application/pdf" || signature !== "%PDF-") {
+  if (
+    (file.type !== "" && file.type !== "application/pdf") ||
+    signature !== "%PDF-"
+  ) {
     throw new ResumePdfValidationError("invalid_format");
   }
 
