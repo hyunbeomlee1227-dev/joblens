@@ -11,6 +11,7 @@ export type AnalysisAttempt = {
   day: string;
   limit: number;
   expiresAtEpoch: number;
+  reservationExpiresAtEpoch: number;
 };
 
 export interface AnalysisAllowanceLedger {
@@ -19,6 +20,7 @@ export interface AnalysisAllowanceLedger {
     attempt: AnalysisAttempt,
   ): Promise<"consumed" | "limit" | "duplicate">;
   refund(attempt: AnalysisAttempt): Promise<void>;
+  markDispatched(attempt: AnalysisAttempt): Promise<void>;
 }
 
 export function analysisDay(now: Date) {
@@ -54,4 +56,6 @@ export class InMemoryAnalysisAllowance implements AnalysisAllowanceLedger {
       .get(JSON.stringify([attempt.candidateSubject, attempt.day]))
       ?.delete(attempt.jobId);
   }
+
+  async markDispatched(_attempt: AnalysisAttempt) {}
 }

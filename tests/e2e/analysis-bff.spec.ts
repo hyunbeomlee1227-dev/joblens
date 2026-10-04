@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { createAnalysisBff } from "@/features/analysis/analysis-bff";
 import { InMemoryAnalysisAllowance } from "@/features/analysis/analysis-allowance";
 import type { AnalysisModelInput } from "@/features/analysis/analysis-job";
+import { AnalysisJobRegistry } from "@/features/analysis/analysis-job";
 
 const origin = "https://www.hyunbeom.site";
 
@@ -64,6 +65,36 @@ function analysisRequest(overrides: Record<string, unknown> = {}) {
     }),
   });
 }
+
+test("kill switch or revoked session during dispatch marking prevents the model call", async () => {
+  for (const invalidation of ["kill", "session"] as const) {
+    const ledger = new InMemoryAnalysisAllowance();
+    let enabled = true;
+    let activeSession = true;
+    const { bff, modelInputs } = setup({
+      enabled: () => enabled,
+      async readSession() {
+        return activeSession
+          ? { candidateSubject: "candidate-a", csrfToken: "csrf-a" }
+          : null;
+      },
+      ledger: {
+        read: (subject, day) => ledger.read(subject, day),
+        consume: (attempt) => ledger.consume(attempt),
+        refund: (attempt) => ledger.refund(attempt),
+        async markDispatched() {
+          await Promise.resolve();
+          if (invalidation === "kill") enabled = false;
+          else activeSession = false;
+        },
+      },
+    });
+    const response = await bff.start(analysisRequest());
+    expect(response.status).toBe(invalidation === "kill" ? 503 : 401);
+    expect(modelInputs).toHaveLength(0);
+    expect(await ledger.read("candidate-a", "2026-10-04")).toBe(0);
+  }
+});
 
 test("an explicit approved Analysis Job consumes allowance but returns no Resume or model payload", async () => {
   const { bff, modelInputs } = setup();
@@ -238,6 +269,61 @@ test("cross-origin and absent or expired sessions cannot submit an Analysis Job"
   expect(modelInputs).toEqual([]);
 });
 
+test("logout while Posting resolution is pending cancels the authenticated request before any dispatch", async () => {
+  const jobs = new AnalysisJobRegistry();
+  let resolving!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    resolving = resolve;
+  });
+  const { bff, modelInputs } = setup({
+    jobs,
+    async resolvePosting() {
+      resolving();
+      return new Promise(() => {});
+    },
+  });
+  const pending = bff.start(analysisRequest());
+  await waiting;
+  bff.cancelCandidate("candidate-a");
+  expect((await pending).status).toBe(408);
+  expect(modelInputs).toEqual([]);
+  expect(await (await bff.allowance(analysisRequest())).json()).toMatchObject({
+    allowance: { used: 0 },
+  });
+});
+
+test("a transient pre-dispatch refund failure is retried without leaving a charge", async () => {
+  const ledger = new InMemoryAnalysisAllowance();
+  let enabled = true;
+  let failRefund = true;
+  const { bff } = setup({
+    enabled: () => enabled,
+    ledger: {
+      markDispatched: (attempt) => ledger.markDispatched(attempt),
+      read: (subject, day) => ledger.read(subject, day),
+      async consume(attempt) {
+        const result = await ledger.consume(attempt);
+        enabled = false;
+        return result;
+      },
+      async refund(attempt) {
+        if (failRefund) {
+          failRefund = false;
+          throw new Error("storage unavailable");
+        }
+        await ledger.refund(attempt);
+      },
+    },
+  });
+  expect((await bff.start(analysisRequest())).status).toBe(503);
+  await expect
+    .poll(
+      async () =>
+        (await (await bff.allowance(analysisRequest())).json()).allowance.used,
+    )
+    .toBe(0);
+});
+
 test("cancellation while the allowance store is pending never charges a model invocation that did not start", async () => {
   const ledger = new InMemoryAnalysisAllowance();
   let release!: () => void;
@@ -250,6 +336,7 @@ test("cancellation while the allowance store is pending never charges a model in
   });
   const { bff, modelInputs } = setup({
     ledger: {
+      markDispatched: (attempt) => ledger.markDispatched(attempt),
       read: (subject, day) => ledger.read(subject, day),
       async consume(attempt) {
         reserving();

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
   readRequestCookie,
@@ -75,6 +75,9 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
   }
 
   async function start(request: Request) {
+    const reservationExpiresAtEpoch = Math.ceil(
+      (now().getTime() + timeoutMs) / 1000,
+    );
     const controller = new AbortController();
     const abort = () => controller.abort();
     request.signal.addEventListener("abort", abort, { once: true });
@@ -83,6 +86,7 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
     const input: AnalysisModelInput = { sanitizedResume: "", postingText: "" };
     let body: Record<string, unknown> | null = null;
     let jobId: string | null = null;
+    let pendingId: string | null = null;
     let attempt: AnalysisAttempt | null = null;
     let consumed = false;
     let dispatched = false;
@@ -93,6 +97,8 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
         controller.signal,
       );
       if (candidate === null) return reply({ error: "unauthorized" }, 401);
+      pendingId = randomUUID();
+      jobs.register(pendingId, candidate.candidateSubject, controller);
       body = await readBody(request, controller.signal);
       if (!validCsrf(body.csrfToken, candidate.csrfToken))
         return reply({ error: "forbidden" }, 403);
@@ -106,6 +112,9 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
       input.sanitizedResume = body.sanitizedResume as string;
       const version = body.resumeVersion as number;
       const id = body.jobId as string;
+      if (!jobs.register(id, candidate.candidateSubject, controller))
+        return reply({ error: "duplicate_job" }, 409);
+      jobId = id;
       let posting = await withAnalysisSignal(
         options.resolvePosting(body.listingId as string),
         controller.signal,
@@ -121,10 +130,13 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
       posting = null;
       for (const key of Object.keys(body)) delete body[key];
       body = null;
-      if (!jobs.register(id, candidate.candidateSubject, controller))
-        return reply({ error: "duplicate_job" }, 409);
-      jobId = id;
       controller.signal.throwIfAborted();
+      const currentSession = await withAnalysisSignal(
+        session(request),
+        controller.signal,
+      );
+      if (currentSession?.candidateSubject !== candidate.candidateSubject)
+        return reply({ error: "unauthorized" }, 401);
       if (!options.enabled()) return reply({ error: "analysis_disabled" }, 503);
       const period = analysisDay(now());
       attempt = {
@@ -133,13 +145,14 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
         day: period.day,
         limit: options.dailyLimit,
         expiresAtEpoch: Date.parse(period.resetsAt) / 1000 + 86400,
+        reservationExpiresAtEpoch,
       };
       const reservation = attempt;
       const reservationResult = await withAnalysisSignal(
         options.ledger.consume(reservation).then(async (result) => {
           consumed = result === "consumed";
           if (consumed && controller.signal.aborted)
-            await options.ledger.refund(reservation);
+            retryAnalysisRefund(options.ledger, reservation);
           return result;
         }),
         controller.signal,
@@ -155,8 +168,27 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
           reservationResult === "limit" ? 429 : 409,
         );
       controller.signal.throwIfAborted();
+      const dispatchSession = await withAnalysisSignal(
+        session(request),
+        controller.signal,
+      );
+      if (dispatchSession?.candidateSubject !== candidate.candidateSubject)
+        return reply({ error: "unauthorized" }, 401);
       if (!options.enabled()) return reply({ error: "analysis_disabled" }, 503);
       try {
+        await withAnalysisSignal(
+          options.ledger.markDispatched(reservation),
+          controller.signal,
+        );
+        const finalSession = await withAnalysisSignal(
+          session(request),
+          controller.signal,
+        );
+        if (finalSession?.candidateSubject !== candidate.candidateSubject)
+          return reply({ error: "unauthorized" }, 401);
+        controller.signal.throwIfAborted();
+        if (!options.enabled())
+          return reply({ error: "analysis_disabled" }, 503);
         dispatched = true;
         await withAnalysisSignal(
           options.model.invoke(input, controller.signal),
@@ -198,8 +230,9 @@ export function createAnalysisBff(options: AnalysisBffOptions) {
       clearTimeout(timer);
       request.signal.removeEventListener("abort", abort);
       if (jobId !== null) jobs.release(jobId);
+      if (pendingId !== null) jobs.release(pendingId);
       if (consumed && !dispatched && attempt !== null)
-        void options.ledger.refund(attempt).catch(() => {});
+        retryAnalysisRefund(options.ledger, attempt);
     }
   }
 
@@ -292,3 +325,19 @@ async function readBody(
 }
 
 class InvalidAnalysisBody extends Error {}
+
+function retryAnalysisRefund(
+  ledger: AnalysisAllowanceLedger,
+  attempt: AnalysisAttempt,
+  delay = 25,
+) {
+  // This closure holds accounting metadata only. DynamoDB persists refund intent
+  // before reversal so a failed reversal also survives workload replacement.
+  void ledger.refund(attempt).catch(() => {
+    const timer = setTimeout(
+      () => retryAnalysisRefund(ledger, attempt, Math.min(delay * 2, 30000)),
+      delay,
+    );
+    timer.unref();
+  });
+}

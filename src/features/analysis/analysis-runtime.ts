@@ -55,6 +55,9 @@ export async function getAnalysisBff() {
       throw new Error("analysis_disabled");
     },
     async refund() {},
+    async markDispatched() {
+      throw new Error("analysis_disabled");
+    },
   };
   return createAnalysisBff({
     allowedOrigin: auth?.appOrigin ?? "https://www.hyunbeom.site",
