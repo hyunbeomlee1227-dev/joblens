@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { AnalysisControls } from "./analysis-controls";
 
 import {
   extractResumePdfInBrowser,
@@ -21,7 +22,13 @@ type ReviewSegment = {
   method?: ExtractedResumePage["method"];
 };
 
-export function ResumeWorkspace() {
+export function ResumeWorkspace({
+  csrfToken = "",
+  analysisFixtureEnabled = false,
+}: {
+  csrfToken?: string;
+  analysisFixtureEnabled?: boolean;
+}) {
   const pdfInput = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<Stage>("input");
   const [sourceText, setSourceText] = useState("");
@@ -127,6 +134,7 @@ export function ResumeWorkspace() {
   }
 
   function editApprovedResume() {
+    setSanitizedResume("");
     setConfirmedSegments(new Set());
     setPreviewConfirmed(false);
     setIdentifiersConfirmed(false);
@@ -399,6 +407,13 @@ export function ResumeWorkspace() {
                   이력서 지우기
                 </button>
               </div>
+              <AnalysisControls
+                key={resumeVersion}
+                sanitizedResume={sanitizedResume}
+                resumeVersion={resumeVersion}
+                csrfToken={csrfToken}
+                fixtureEnabled={analysisFixtureEnabled}
+              />
             </>
           )}
         </section>

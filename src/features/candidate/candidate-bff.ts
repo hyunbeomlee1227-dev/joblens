@@ -5,6 +5,7 @@ import {
 } from "./candidate-session";
 import type { JobPreferences } from "@/features/discovery/discover-job-listings";
 import { fixturePreferenceOptions } from "@/features/discovery/fixture-job-listings";
+import { analysisJobs } from "@/features/analysis/analysis-job";
 
 export const sessionCookieName = "joblens_session";
 
@@ -67,10 +68,13 @@ export function createCandidateBffHandlers({
       if (typeof body.csrfToken !== "string") {
         return Response.json({ error: "invalid_request" }, { status: 400 });
       }
+      const candidate = await manager.read(sessionId);
       await manager[operation === "logout" ? "logout" : "deleteAccount"]({
         sessionId,
         csrfToken: body.csrfToken,
       });
+      if (candidate !== null)
+        analysisJobs.cancelCandidate(candidate.candidateSubject);
       return new Response(null, {
         status: 303,
         headers: {

@@ -30,7 +30,10 @@ export default async function ResumePage({ searchParams }: ResumePageProps) {
         </p>
       </section>
       {candidateState !== null || isCandidateFixture ? (
-        <ResumeWorkspace />
+        <ResumeWorkspace
+          csrfToken={candidateState?.csrfToken ?? "e2e-csrf"}
+          analysisFixtureEnabled={isCandidateFixture}
+        />
       ) : (
         <section className="resume-card resume-login-gate">
           <div className="resume-card-heading">
