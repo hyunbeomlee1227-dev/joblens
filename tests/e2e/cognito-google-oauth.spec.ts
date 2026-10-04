@@ -45,6 +45,8 @@ test("an OAuth transaction is opaque, tamper-evident, and expires after ten minu
   const startedAt = new Date("2026-09-29T00:00:00.000Z");
   const transaction = createOAuthTransaction(startedAt);
   const sealed = sealOAuthTransaction(transaction, key);
+  const tamperedBytes = Buffer.from(sealed, "base64url");
+  tamperedBytes[0] ^= 1;
 
   expect(sealed).not.toContain(transaction.codeVerifier);
   expect(
@@ -52,7 +54,7 @@ test("an OAuth transaction is opaque, tamper-evident, and expires after ten minu
   ).toEqual(transaction);
   expect(
     openOAuthTransaction(
-      `${sealed.slice(0, -1)}A`,
+      tamperedBytes.toString("base64url"),
       key,
       new Date("2026-09-29T00:09:59.000Z"),
     ),
